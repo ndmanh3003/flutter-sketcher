@@ -8,7 +8,7 @@ import 'package:sketcher/drawing/drawing_painter.dart';
 import 'package:sketcher/drawing/scene_codec.dart';
 import 'package:sketcher/drawing/shape_hit_test.dart';
 import 'package:sketcher/drawing/toolbar_tool.dart';
-import 'package:sketcher/drawing/undo_entry.dart';
+import 'package:sketcher/drawing/undo_redo_entry.dart';
 import 'package:sketcher/models/draw_shape.dart';
 
 enum _Flyout { none, shape, color, stroke }
@@ -23,6 +23,7 @@ class DrawingPage extends StatefulWidget {
 class _DrawingPageState extends State<DrawingPage> {
   final List<DrawShape> _shapes = <DrawShape>[];
   final List<UndoEntry> _undoStack = <UndoEntry>[];
+  final List<RedoEntry> _redoStack = <RedoEntry>[];
   final List<Color> _paletteColors = <Color>[
     Colors.blue,
     Colors.green,
@@ -132,20 +133,14 @@ class _DrawingPageState extends State<DrawingPage> {
           key: _stackKey,
           clipBehavior: Clip.none,
           children: [
-            Positioned.fill(
-              child: _buildCanvasArea(),
-            ),
+            Positioned.fill(child: _buildCanvasArea()),
             if (_flyout != _Flyout.none)
               Positioned(
                 left: _flyoutLeft,
                 top: _flyoutTop,
                 child: _floatingFlyoutPanel(pillMaxWidth),
               ),
-            Positioned(
-              right: 8,
-              top: 8,
-              child: _toolbarTopDock(toolSize),
-            ),
+            Positioned(right: 8, top: 8, child: _toolbarTopDock(toolSize)),
             Positioned(
               right: 8,
               bottom: 8,
@@ -189,10 +184,7 @@ class _DrawingPageState extends State<DrawingPage> {
             color: Colors.white,
             child: CustomPaint(
               size: Size(constraints.maxWidth, constraints.maxHeight),
-              painter: DrawingPainter(
-                shapes: _shapes,
-                preview: _previewShape,
-              ),
+              painter: DrawingPainter(shapes: _shapes, preview: _previewShape),
             ),
           ),
         );
@@ -204,45 +196,45 @@ class _DrawingPageState extends State<DrawingPage> {
     return switch (_flyout) {
       _Flyout.none => const SizedBox.shrink(),
       _Flyout.shape => _pillStrip(
-          maxWidth: pillMaxWidth,
-          controller: _shapeScroll,
-          children: ShapeType.values.map((ShapeType type) {
-            final bool sel = type == _selectedType;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Material(
-                color: sel ? Colors.black87 : Colors.white,
-                elevation: sel ? 3 : 1,
-                shape: const CircleBorder(),
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: () => setState(() => _selectedType = type),
-                  child: SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: Icon(
-                      _shapeIcon(type),
-                      color: sel ? Colors.white : Colors.black87,
-                      size: 22,
-                    ),
+        maxWidth: pillMaxWidth,
+        controller: _shapeScroll,
+        children: ShapeType.values.map((ShapeType type) {
+          final bool sel = type == _selectedType;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Material(
+              color: sel ? Colors.black87 : Colors.white,
+              elevation: sel ? 3 : 1,
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () => setState(() => _selectedType = type),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: Icon(
+                    _shapeIcon(type),
+                    color: sel ? Colors.white : Colors.black87,
+                    size: 22,
                   ),
                 ),
               ),
-            );
-          }).toList(),
-        ),
+            ),
+          );
+        }).toList(),
+      ),
       _Flyout.color => _pillStrip(
-          maxWidth: pillMaxWidth,
-          controller: _colorScroll,
-          children: _paletteColors.map((Color color) {
-            final bool sel = color.toARGB32() == _bucketColor.toARGB32();
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: _paletteColorDot(color, selected: sel),
-            );
-          }).toList(),
-        ),
+        maxWidth: pillMaxWidth,
+        controller: _colorScroll,
+        children: _paletteColors.map((Color color) {
+          final bool sel = color.toARGB32() == _bucketColor.toARGB32();
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: _paletteColorDot(color, selected: sel),
+          );
+        }).toList(),
+      ),
       _Flyout.stroke => _strokeWidthSliderPill(pillMaxWidth),
     };
   }
@@ -328,7 +320,16 @@ class _DrawingPageState extends State<DrawingPage> {
           selected: false,
           icon: Icons.undo,
           tooltip: 'Undo',
+          enabled: _undoStack.isNotEmpty,
           onTap: _undo,
+        ),
+        _roundToolButton(
+          size: size,
+          selected: false,
+          icon: Icons.redo,
+          tooltip: 'Redo',
+          enabled: _redoStack.isNotEmpty,
+          onTap: _redo,
         ),
         _roundToolButton(
           size: size,
@@ -339,6 +340,7 @@ class _DrawingPageState extends State<DrawingPage> {
             _flyout = _Flyout.none;
             _shapes.clear();
             _undoStack.clear();
+            _redoStack.clear();
           }),
         ),
         _roundToolButton(
@@ -466,10 +468,7 @@ class _DrawingPageState extends State<DrawingPage> {
           children: [
             IconButton(
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(
-                minWidth: 36,
-                minHeight: 48,
-              ),
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 48),
               icon: const Icon(Icons.chevron_left, color: Colors.black45),
               onPressed: () => _scrollStrip(controller, -72),
             ),
@@ -477,17 +476,13 @@ class _DrawingPageState extends State<DrawingPage> {
               child: ListView(
                 controller: controller,
                 scrollDirection: Axis.horizontal,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                 children: children,
               ),
             ),
             IconButton(
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(
-                minWidth: 36,
-                minHeight: 48,
-              ),
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 48),
               icon: const Icon(Icons.chevron_right, color: Colors.black45),
               onPressed: () => _scrollStrip(controller, 72),
             ),
@@ -502,26 +497,32 @@ class _DrawingPageState extends State<DrawingPage> {
     required bool selected,
     required IconData icon,
     required VoidCallback onTap,
+    bool enabled = true,
     String? tooltip,
   }) {
+    final bool active = enabled;
     Widget child = Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Material(
-        color: selected ? Colors.black87 : Colors.white,
+        color: active
+            ? (selected ? Colors.black87 : Colors.white)
+            : const Color(0xFFE0E0E0),
         elevation: selected ? 5 : 3,
         shadowColor: Colors.black45,
         shape: const CircleBorder(),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           customBorder: const CircleBorder(),
-          onTap: onTap,
+          onTap: active ? onTap : null,
           child: SizedBox(
             width: size,
             height: size,
             child: Icon(
               icon,
               size: 24,
-              color: selected ? Colors.white : Colors.black87,
+              color: active
+                  ? (selected ? Colors.white : Colors.black87)
+                  : Colors.black38,
             ),
           ),
         ),
@@ -541,6 +542,7 @@ class _DrawingPageState extends State<DrawingPage> {
       if (!ShapeHitTest.contains(s, p)) continue;
       if (s.filled && s.fillColor == solid) return;
       setState(() {
+        _redoStack.clear();
         _undoStack.add(
           UndoFillRestore(
             shapeIndex: i,
@@ -569,7 +571,7 @@ class _DrawingPageState extends State<DrawingPage> {
     if (_selectedType != ShapeType.point) return;
     setState(() {
       final Color c = _opaque(_strokeColor);
-      _shapes.add(DrawShape(
+      final DrawShape shape = DrawShape(
         type: ShapeType.point,
         start: point,
         end: point,
@@ -577,8 +579,10 @@ class _DrawingPageState extends State<DrawingPage> {
         fillColor: c,
         strokeWidth: _strokeWidth,
         filled: true,
-      ));
-      _undoStack.add(UndoAddShape());
+      );
+      _shapes.add(shape);
+      _redoStack.clear();
+      _undoStack.add(UndoAddShape(shape: shape));
     });
   }
 
@@ -607,8 +611,10 @@ class _DrawingPageState extends State<DrawingPage> {
   void _commitDraw() {
     if (_previewShape == null) return;
     setState(() {
-      _shapes.add(_previewShape!);
-      _undoStack.add(UndoAddShape());
+      final DrawShape shape = _previewShape!;
+      _shapes.add(shape);
+      _redoStack.clear();
+      _undoStack.add(UndoAddShape(shape: shape));
       _previewShape = null;
     });
   }
@@ -620,16 +626,46 @@ class _DrawingPageState extends State<DrawingPage> {
       final UndoEntry e = _undoStack.removeLast();
       if (e is UndoAddShape) {
         if (_shapes.isNotEmpty) {
-          _shapes.removeLast();
+          final DrawShape removed = _shapes.removeLast();
+          _redoStack.add(RedoAddShape(shape: removed));
         }
       } else if (e is UndoFillRestore) {
         final int i = e.shapeIndex;
         if (i >= 0 && i < _shapes.length) {
           final DrawShape s = _shapes[i];
-          _shapes[i] = s.copyWith(
-            fillColor: e.fillColor,
-            filled: e.filled,
+          _redoStack.add(
+            RedoFillRestore(
+              shapeIndex: i,
+              fillColor: s.fillColor,
+              filled: s.filled,
+            ),
           );
+          _shapes[i] = s.copyWith(fillColor: e.fillColor, filled: e.filled);
+        }
+      }
+    });
+  }
+
+  void _redo() {
+    if (_redoStack.isEmpty) return;
+    setState(() {
+      _flyout = _Flyout.none;
+      final RedoEntry e = _redoStack.removeLast();
+      if (e is RedoAddShape) {
+        _shapes.add(e.shape);
+        _undoStack.add(UndoAddShape(shape: e.shape));
+      } else if (e is RedoFillRestore) {
+        final int i = e.shapeIndex;
+        if (i >= 0 && i < _shapes.length) {
+          final DrawShape s = _shapes[i];
+          _undoStack.add(
+            UndoFillRestore(
+              shapeIndex: i,
+              fillColor: s.fillColor,
+              filled: s.filled,
+            ),
+          );
+          _shapes[i] = s.copyWith(fillColor: e.fillColor, filled: e.filled);
         }
       }
     });
@@ -649,6 +685,8 @@ class _DrawingPageState extends State<DrawingPage> {
 
   void _showSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
