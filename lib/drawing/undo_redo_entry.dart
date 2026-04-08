@@ -39,3 +39,15 @@ class RedoFillRestore extends RedoEntry {
   final Color fillColor;
   final bool filled;
 }
+
+class UndoClearCanvas extends UndoEntry {
+  UndoClearCanvas({required this.clearedShapes});
+
+  final List<DrawShape> clearedShapes;
+}
+
+class RedoClearCanvas extends RedoEntry {
+  RedoClearCanvas({required this.clearedShapes});
+
+  final List<DrawShape> clearedShapes;
+}

@@ -336,12 +336,7 @@ class _DrawingPageState extends State<DrawingPage> {
           selected: false,
           icon: Icons.delete_outline,
           tooltip: 'Clear all',
-          onTap: () => setState(() {
-            _flyout = _Flyout.none;
-            _shapes.clear();
-            _undoStack.clear();
-            _redoStack.clear();
-          }),
+          onTap: _clearCanvas,
         ),
         _roundToolButton(
           size: size,
@@ -619,6 +614,25 @@ class _DrawingPageState extends State<DrawingPage> {
     });
   }
 
+  void _clearCanvas() {
+    if (_shapes.isEmpty) {
+      setState(() {
+        _flyout = _Flyout.none;
+        _previewShape = null;
+      });
+      return;
+    }
+    setState(() {
+      _flyout = _Flyout.none;
+      _previewShape = null;
+      _redoStack.clear();
+      _undoStack.add(
+        UndoClearCanvas(clearedShapes: List<DrawShape>.of(_shapes)),
+      );
+      _shapes.clear();
+    });
+  }
+
   void _undo() {
     if (_undoStack.isEmpty) return;
     setState(() {
@@ -642,6 +656,13 @@ class _DrawingPageState extends State<DrawingPage> {
           );
           _shapes[i] = s.copyWith(fillColor: e.fillColor, filled: e.filled);
         }
+      } else if (e is UndoClearCanvas) {
+        _redoStack.add(
+          RedoClearCanvas(clearedShapes: List<DrawShape>.of(e.clearedShapes)),
+        );
+        _shapes
+          ..clear()
+          ..addAll(e.clearedShapes);
       }
     });
   }
@@ -667,6 +688,11 @@ class _DrawingPageState extends State<DrawingPage> {
           );
           _shapes[i] = s.copyWith(fillColor: e.fillColor, filled: e.filled);
         }
+      } else if (e is RedoClearCanvas) {
+        _undoStack.add(
+          UndoClearCanvas(clearedShapes: List<DrawShape>.of(e.clearedShapes)),
+        );
+        _shapes.clear();
       }
     });
   }
