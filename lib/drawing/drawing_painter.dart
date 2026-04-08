@@ -5,10 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:sketcher/models/draw_shape.dart';
 
 class DrawingPainter extends CustomPainter {
-  const DrawingPainter({
-    required this.shapes,
-    required this.preview,
-  });
+  const DrawingPainter({required this.shapes, required this.preview});
 
   final List<DrawShape> shapes;
   final DrawShape? preview;
@@ -49,13 +46,13 @@ class DrawingPainter extends CustomPainter {
         }
         canvas.drawOval(rect, stroke);
       case ShapeType.circle:
-        final Rect r = _squareRectFrom(rect);
+        final Rect r = _squareRectFrom(shape.start, shape.end);
         if (shape.filled) {
           canvas.drawOval(r, fill);
         }
         canvas.drawOval(r, stroke);
       case ShapeType.square:
-        final Rect r = _squareRectFrom(rect);
+        final Rect r = _squareRectFrom(shape.start, shape.end);
         if (shape.filled) {
           canvas.drawRect(r, fill);
         }
@@ -68,9 +65,13 @@ class DrawingPainter extends CustomPainter {
     }
   }
 
-  static Rect _squareRectFrom(Rect rect) {
-    final double side = math.min(rect.width.abs(), rect.height.abs());
-    return Rect.fromLTWH(rect.left, rect.top, side, side);
+  static Rect _squareRectFrom(Offset start, Offset end) {
+    final double dx = end.dx - start.dx;
+    final double dy = end.dy - start.dy;
+    final double side = math.min(dx.abs(), dy.abs());
+    final double left = dx >= 0 ? start.dx : start.dx - side;
+    final double top = dy >= 0 ? start.dy : start.dy - side;
+    return Rect.fromLTWH(left, top, side, side);
   }
 
   @override
