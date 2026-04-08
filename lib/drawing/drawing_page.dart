@@ -8,7 +8,8 @@ import 'package:sketcher/drawing/drawing_painter.dart';
 import 'package:sketcher/drawing/scene_codec.dart';
 import 'package:sketcher/drawing/shape_hit_test.dart';
 import 'package:sketcher/drawing/toolbar_tool.dart';
-import 'package:sketcher/drawing/undo_redo_entry.dart';
+import 'package:sketcher/drawing/undo_entry.dart';
+import 'package:sketcher/drawing/redo_entry.dart';
 import 'package:sketcher/models/draw_shape.dart';
 
 enum _Flyout { none, shape, color, stroke }
