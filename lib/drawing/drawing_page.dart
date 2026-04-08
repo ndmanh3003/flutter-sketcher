@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:sketcher/drawing/drawing_painter.dart';
 import 'package:sketcher/drawing/scene_codec.dart';
@@ -56,6 +57,7 @@ class _DrawingPageState extends State<DrawingPage> {
   final ScrollController _colorScroll = ScrollController();
 
   static const String _binaryFileName = 'sketcher_scene.bin';
+  static const String _ellipseIconAsset = 'assets/icons/ellipse_outline.svg';
 
   @override
   void dispose() {
@@ -214,10 +216,12 @@ class _DrawingPageState extends State<DrawingPage> {
                 child: SizedBox(
                   width: 40,
                   height: 40,
-                  child: Icon(
-                    _shapeIcon(type),
-                    color: sel ? Colors.white : Colors.black87,
-                    size: 22,
+                  child: Center(
+                    child: _shapeGlyph(
+                      type,
+                      color: sel ? Colors.white : Colors.black87,
+                      size: 22,
+                    ),
                   ),
                 ),
               ),
@@ -285,6 +289,11 @@ class _DrawingPageState extends State<DrawingPage> {
             size: size,
             selected: _flyout == _Flyout.shape,
             icon: _shapeIcon(_selectedType),
+            iconChild: _shapeGlyph(
+              _selectedType,
+              color: _flyout == _Flyout.shape ? Colors.white : Colors.black87,
+              size: 24,
+            ),
             tooltip: 'Shape',
             onTap: () => _toggleFlyout(_Flyout.shape, _keyShapeAnchor),
           ),
@@ -492,11 +501,15 @@ class _DrawingPageState extends State<DrawingPage> {
     required double size,
     required bool selected,
     required IconData icon,
+    Widget? iconChild,
     required VoidCallback onTap,
     bool enabled = true,
     String? tooltip,
   }) {
     final bool active = enabled;
+    final Color iconColor = active
+        ? (selected ? Colors.white : Colors.black87)
+        : Colors.black38;
     Widget child = Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Material(
@@ -513,12 +526,8 @@ class _DrawingPageState extends State<DrawingPage> {
           child: SizedBox(
             width: size,
             height: size,
-            child: Icon(
-              icon,
-              size: 24,
-              color: active
-                  ? (selected ? Colors.white : Colors.black87)
-                  : Colors.black38,
+            child: Center(
+              child: iconChild ?? Icon(icon, size: 24, color: iconColor),
             ),
           ),
         ),
@@ -555,12 +564,42 @@ class _DrawingPageState extends State<DrawingPage> {
   IconData _shapeIcon(ShapeType type) {
     return switch (type) {
       ShapeType.point => Icons.circle,
-      ShapeType.line => Icons.show_chart,
-      ShapeType.ellipse => Icons.panorama_wide_angle_outlined,
+      ShapeType.line => Icons.horizontal_rule,
+      ShapeType.ellipse =>
+        Icons
+            .panorama_wide_angle_outlined, // Overide by shapeGlyph with correct ellipse icon
       ShapeType.circle => Icons.circle_outlined,
       ShapeType.square => Icons.square_outlined,
       ShapeType.rectangle => Icons.rectangle_outlined,
     };
+  }
+
+  Widget _shapeGlyph(
+    ShapeType type, {
+    required Color color,
+    required double size,
+  }) {
+    if (type == ShapeType.ellipse) {
+      return SvgPicture.asset(
+        _ellipseIconAsset,
+        width: size,
+        height: size,
+        colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+      );
+    }
+
+    if (type == ShapeType.line) {
+      return Transform.rotate(
+        angle: -math.pi / 4,
+        child: Icon(Icons.horizontal_rule, color: color, size: size),
+      );
+    }
+
+    if (type == ShapeType.point) {
+      return Icon(Icons.circle, color: color, size: math.max(1.5, size / 2));
+    }
+
+    return Icon(_shapeIcon(type), color: color, size: size);
   }
 
   void _drawPointIfNeeded(Offset point) {
