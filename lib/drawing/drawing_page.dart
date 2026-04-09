@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:sketcher/drawing/drawing_painter.dart';
@@ -54,7 +55,6 @@ class _DrawingPageState extends State<DrawingPage> {
   final GlobalKey _keyStrokeAnchor = GlobalKey(debugLabel: 'stroke_anchor');
 
   final ScrollController _shapeScroll = ScrollController();
-  final ScrollController _colorScroll = ScrollController();
 
   static const String _binaryFileName = 'sketcher_scene.bin';
   static const String _ellipseIconAsset = 'assets/icons/ellipse_outline.svg';
@@ -62,7 +62,6 @@ class _DrawingPageState extends State<DrawingPage> {
   @override
   void dispose() {
     _shapeScroll.dispose();
-    _colorScroll.dispose();
     super.dispose();
   }
 
@@ -89,18 +88,28 @@ class _DrawingPageState extends State<DrawingPage> {
     final Offset anchorGlobal = anchorBox.localToGlobal(Offset.zero);
     final Offset stackGlobal = stackBox.localToGlobal(Offset.zero);
     final Offset rel = anchorGlobal - stackGlobal;
+    final double stackW = stackBox.size.width;
+    final double stackH = stackBox.size.height;
+    final double screenH = MediaQuery.sizeOf(context).height;
     const double toolSize = 52;
-    final double pillMaxW = math.min(
-      280.0,
-      MediaQuery.sizeOf(context).width - toolSize - 48,
-    );
+    final double pillMaxW = _flyout == _Flyout.color
+        ? math.min(340.0, stackW - toolSize - 48)
+        : math.min(280.0, stackW - toolSize - 48);
     const double gap = 8;
     setState(() {
-      _flyoutLeft = rel.dx - pillMaxW - gap;
-      if (_flyoutLeft < gap) {
-        _flyoutLeft = gap;
-      }
+      // Keep the panel to the left of its anchor button while staying onscreen.
+      final double preferredLeft = rel.dx - pillMaxW - gap;
+      final double minLeft = gap;
+      final double maxLeft = math.max(minLeft, stackW - pillMaxW - gap);
+      _flyoutLeft = preferredLeft.clamp(minLeft, maxLeft).toDouble();
       _flyoutTop = rel.dy;
+      // Clamp top so the color picker doesn't overflow the screen
+      if (_flyout == _Flyout.color) {
+        final double maxTop = math.min(screenH, stackH) - 480;
+        if (_flyoutTop > maxTop && maxTop > 0) {
+          _flyoutTop = maxTop;
+        }
+      }
     });
   }
 
@@ -126,10 +135,10 @@ class _DrawingPageState extends State<DrawingPage> {
   @override
   Widget build(BuildContext context) {
     const double toolSize = 52;
-    final double pillMaxWidth = math.min(
-      280.0,
-      MediaQuery.sizeOf(context).width - toolSize - 48,
-    );
+    final double screenW = MediaQuery.sizeOf(context).width;
+    final double pillMaxWidth = _flyout == _Flyout.color
+        ? math.min(340.0, screenW - toolSize - 48)
+        : math.min(280.0, screenW - toolSize - 48);
     return Scaffold(
       body: SafeArea(
         child: Stack(
@@ -229,17 +238,7 @@ class _DrawingPageState extends State<DrawingPage> {
           );
         }).toList(),
       ),
-      _Flyout.color => _pillStrip(
-        maxWidth: pillMaxWidth,
-        controller: _colorScroll,
-        children: _paletteColors.map((Color color) {
-          final bool sel = color.toARGB32() == _bucketColor.toARGB32();
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: _paletteColorDot(color, selected: sel),
-          );
-        }).toList(),
-      ),
+      _Flyout.color => _colorPickerPanel(pillMaxWidth),
       _Flyout.stroke => _strokeWidthSliderPill(pillMaxWidth),
     };
   }
@@ -399,6 +398,57 @@ class _DrawingPageState extends State<DrawingPage> {
     );
   }
 
+  Widget _colorPickerPanel(double maxWidth) {
+    return Material(
+      elevation: 4,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(16),
+      color: const Color(0xFFF5F5F5),
+      child: SizedBox(
+        width: maxWidth,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Color picker
+              ColorPicker(
+                pickerColor: _bucketColor,
+                onColorChanged: (Color color) {
+                  setState(() => _bucketColor = color);
+                },
+                enableAlpha: false,
+                hexInputBar: true,
+                labelTypes: const [],
+                pickerAreaHeightPercent: 0.7,
+                portraitOnly: true,
+                displayThumbColor: true,
+                pickerAreaBorderRadius: const BorderRadius.all(
+                  Radius.circular(10),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Quick palette row
+              SizedBox(
+                height: 40,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _paletteColors.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 6),
+                  itemBuilder: (context, index) {
+                    final Color c = _paletteColors[index];
+                    final bool sel = c.toARGB32() == _bucketColor.toARGB32();
+                    return _paletteColorDot(c, selected: sel);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _paletteColorDot(Color color, {required bool selected}) {
     return Material(
       elevation: selected ? 3 : 1,
@@ -410,8 +460,8 @@ class _DrawingPageState extends State<DrawingPage> {
         customBorder: const CircleBorder(),
         onTap: () => setState(() => _bucketColor = color),
         child: SizedBox(
-          width: 40,
-          height: 40,
+          width: 32,
+          height: 32,
           child: DecoratedBox(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
