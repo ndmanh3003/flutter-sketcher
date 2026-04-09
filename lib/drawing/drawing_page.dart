@@ -14,7 +14,7 @@ import 'package:sketcher/drawing/undo_entry.dart';
 import 'package:sketcher/drawing/redo_entry.dart';
 import 'package:sketcher/models/draw_shape.dart';
 
-enum _Flyout { none, shape, color, stroke }
+enum _Flyout { none, shape, color, stroke, strokeColor }
 
 class DrawingPage extends StatefulWidget {
   const DrawingPage({super.key});
@@ -39,7 +39,7 @@ class _DrawingPageState extends State<DrawingPage> {
   ];
 
   ShapeType _selectedType = ShapeType.line;
-  final Color _strokeColor = Colors.black;
+  Color _strokeColor = Colors.black;
   Color _bucketColor = Colors.blue;
   double _strokeWidth = 2;
   DrawShape? _previewShape;
@@ -53,6 +53,9 @@ class _DrawingPageState extends State<DrawingPage> {
   final GlobalKey _keyShapeAnchor = GlobalKey(debugLabel: 'shape_anchor');
   final GlobalKey _keyColorAnchor = GlobalKey(debugLabel: 'color_anchor');
   final GlobalKey _keyStrokeAnchor = GlobalKey(debugLabel: 'stroke_anchor');
+  final GlobalKey _keyStrokeColorAnchor = GlobalKey(
+    debugLabel: 'stroke_color_anchor',
+  );
 
   final ScrollController _shapeScroll = ScrollController();
 
@@ -92,7 +95,9 @@ class _DrawingPageState extends State<DrawingPage> {
     final double stackH = stackBox.size.height;
     final double screenH = MediaQuery.sizeOf(context).height;
     const double toolSize = 52;
-    final double pillMaxW = _flyout == _Flyout.color
+    final bool isColorFlyout =
+        _flyout == _Flyout.color || _flyout == _Flyout.strokeColor;
+    final double pillMaxW = isColorFlyout
         ? math.min(340.0, stackW - toolSize - 48)
         : math.min(280.0, stackW - toolSize - 48);
     const double gap = 8;
@@ -104,7 +109,7 @@ class _DrawingPageState extends State<DrawingPage> {
       _flyoutLeft = preferredLeft.clamp(minLeft, maxLeft).toDouble();
       _flyoutTop = rel.dy;
       // Clamp top so the color picker doesn't overflow the screen
-      if (_flyout == _Flyout.color) {
+      if (_flyout == _Flyout.color || _flyout == _Flyout.strokeColor) {
         final double maxTop = math.min(screenH, stackH) - 480;
         if (_flyoutTop > maxTop && maxTop > 0) {
           _flyoutTop = maxTop;
@@ -136,7 +141,9 @@ class _DrawingPageState extends State<DrawingPage> {
   Widget build(BuildContext context) {
     const double toolSize = 52;
     final double screenW = MediaQuery.sizeOf(context).width;
-    final double pillMaxWidth = _flyout == _Flyout.color
+    final bool isColorFlyout =
+        _flyout == _Flyout.color || _flyout == _Flyout.strokeColor;
+    final double pillMaxWidth = isColorFlyout
         ? math.min(340.0, screenW - toolSize - 48)
         : math.min(280.0, screenW - toolSize - 48);
     return Scaffold(
@@ -238,8 +245,9 @@ class _DrawingPageState extends State<DrawingPage> {
           );
         }).toList(),
       ),
-      _Flyout.color => _colorPickerPanel(pillMaxWidth),
+      _Flyout.color => _fillColorPickerPanel(pillMaxWidth),
       _Flyout.stroke => _strokeWidthSliderPill(pillMaxWidth),
+      _Flyout.strokeColor => _strokeColorPickerPanel(pillMaxWidth),
     };
   }
 
@@ -264,16 +272,70 @@ class _DrawingPageState extends State<DrawingPage> {
   }
 
   Widget _toolbarTopDock(double size) {
+    final List<Widget> modeTools = _toolbarTool == ToolbarTool.draw
+        ? <Widget>[
+            Padding(
+              key: _keyShapeAnchor,
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: _roundToolButton(
+                size: size,
+                selected: _flyout == _Flyout.shape,
+                icon: _shapeIcon(_selectedType),
+                iconChild: _shapeGlyph(
+                  _selectedType,
+                  color: _flyout == _Flyout.shape
+                      ? Colors.white
+                      : Colors.black87,
+                  size: 24,
+                ),
+                tooltip: 'Shape',
+                onTap: () => _toggleFlyout(_Flyout.shape, _keyShapeAnchor),
+              ),
+            ),
+            Padding(
+              key: _keyStrokeAnchor,
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: _roundToolButton(
+                size: size,
+                selected: _flyout == _Flyout.stroke,
+                icon: Icons.line_weight,
+                tooltip: 'Stroke width',
+                onTap: () => _toggleFlyout(_Flyout.stroke, _keyStrokeAnchor),
+              ),
+            ),
+            Padding(
+              key: _keyStrokeColorAnchor,
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: _strokeColorAnchor(
+                size: size,
+                onTap: () =>
+                    _toggleFlyout(_Flyout.strokeColor, _keyStrokeColorAnchor),
+              ),
+            ),
+          ]
+        : <Widget>[
+            Padding(
+              key: _keyColorAnchor,
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: _bucketColorAnchor(
+                size: size,
+                onTap: () => _toggleFlyout(_Flyout.color, _keyColorAnchor),
+              ),
+            ),
+          ];
+
     return _toolbarChrome(
       size: size,
       children: [
         _roundToolButton(
           size: size,
-          selected: _toolbarTool == ToolbarTool.fill,
-          icon: Icons.format_color_fill,
+          selected: false,
+          icon: _toolbarTool == ToolbarTool.fill
+              ? Icons.format_color_fill
+              : Icons.brush,
           tooltip: _toolbarTool == ToolbarTool.fill
-              ? 'Bucket fill — tap to draw'
-              : 'Draw — tap for bucket fill',
+              ? 'Fill mode - tap for draw mode'
+              : 'Draw mode - tap for fill mode',
           onTap: () => setState(() {
             _flyout = _Flyout.none;
             _toolbarTool = _toolbarTool == ToolbarTool.fill
@@ -281,41 +343,7 @@ class _DrawingPageState extends State<DrawingPage> {
                 : ToolbarTool.fill;
           }),
         ),
-        Padding(
-          key: _keyShapeAnchor,
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: _roundToolButton(
-            size: size,
-            selected: _flyout == _Flyout.shape,
-            icon: _shapeIcon(_selectedType),
-            iconChild: _shapeGlyph(
-              _selectedType,
-              color: _flyout == _Flyout.shape ? Colors.white : Colors.black87,
-              size: 24,
-            ),
-            tooltip: 'Shape',
-            onTap: () => _toggleFlyout(_Flyout.shape, _keyShapeAnchor),
-          ),
-        ),
-        Padding(
-          key: _keyStrokeAnchor,
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: _roundToolButton(
-            size: size,
-            selected: _flyout == _Flyout.stroke,
-            icon: Icons.line_weight,
-            tooltip: 'Stroke width',
-            onTap: () => _toggleFlyout(_Flyout.stroke, _keyStrokeAnchor),
-          ),
-        ),
-        Padding(
-          key: _keyColorAnchor,
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: _bucketColorAnchor(
-            size: size,
-            onTap: () => _toggleFlyout(_Flyout.color, _keyColorAnchor),
-          ),
-        ),
+        ...modeTools,
       ],
     );
   }
@@ -398,7 +426,68 @@ class _DrawingPageState extends State<DrawingPage> {
     );
   }
 
-  Widget _colorPickerPanel(double maxWidth) {
+  Widget _strokeColorAnchor({
+    required double size,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: 'Stroke color',
+      child: Material(
+        elevation: _flyout == _Flyout.strokeColor ? 5 : 4,
+        shadowColor: Colors.black45,
+        shape: const CircleBorder(),
+        color: _strokeColor,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 3),
+                boxShadow: const [
+                  BoxShadow(
+                    blurRadius: 2,
+                    offset: Offset(0, 1),
+                    color: Color(0x33000000),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _fillColorPickerPanel(double maxWidth) {
+    return _colorPickerPanel(
+      maxWidth: maxWidth,
+      selectedColor: _bucketColor,
+      onColorChanged: (Color color) {
+        setState(() => _bucketColor = color);
+      },
+    );
+  }
+
+  Widget _strokeColorPickerPanel(double maxWidth) {
+    return _colorPickerPanel(
+      maxWidth: maxWidth,
+      selectedColor: _strokeColor,
+      onColorChanged: (Color color) {
+        setState(() => _strokeColor = color);
+      },
+    );
+  }
+
+  Widget _colorPickerPanel({
+    required double maxWidth,
+    required Color selectedColor,
+    required ValueChanged<Color> onColorChanged,
+  }) {
     return Material(
       elevation: 4,
       shadowColor: Colors.black26,
@@ -413,10 +502,8 @@ class _DrawingPageState extends State<DrawingPage> {
             children: [
               // Color picker
               ColorPicker(
-                pickerColor: _bucketColor,
-                onColorChanged: (Color color) {
-                  setState(() => _bucketColor = color);
-                },
+                pickerColor: selectedColor,
+                onColorChanged: onColorChanged,
                 enableAlpha: false,
                 hexInputBar: true,
                 labelTypes: const [],
@@ -437,8 +524,12 @@ class _DrawingPageState extends State<DrawingPage> {
                   separatorBuilder: (_, _) => const SizedBox(width: 6),
                   itemBuilder: (context, index) {
                     final Color c = _paletteColors[index];
-                    final bool sel = c.toARGB32() == _bucketColor.toARGB32();
-                    return _paletteColorDot(c, selected: sel);
+                    final bool sel = c.toARGB32() == selectedColor.toARGB32();
+                    return _paletteColorDot(
+                      c,
+                      selected: sel,
+                      onTap: () => onColorChanged(c),
+                    );
                   },
                 ),
               ),
@@ -449,7 +540,11 @@ class _DrawingPageState extends State<DrawingPage> {
     );
   }
 
-  Widget _paletteColorDot(Color color, {required bool selected}) {
+  Widget _paletteColorDot(
+    Color color, {
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
     return Material(
       elevation: selected ? 3 : 1,
       shadowColor: Colors.black38,
@@ -458,7 +553,7 @@ class _DrawingPageState extends State<DrawingPage> {
       color: color,
       child: InkWell(
         customBorder: const CircleBorder(),
-        onTap: () => setState(() => _bucketColor = color),
+        onTap: onTap,
         child: SizedBox(
           width: 32,
           height: 32,
