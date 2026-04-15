@@ -1,12 +1,16 @@
-import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
+import 'dart:ui' as ui;
 
+import 'package:cross_file/cross_file.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:image/image.dart' as img;
 
 import 'package:sketcher/drawing/drawing_painter.dart';
+import 'package:sketcher/drawing/save_format.dart';
 import 'package:sketcher/drawing/scene_codec.dart';
 import 'package:sketcher/drawing/shape_hit_test.dart';
 import 'package:sketcher/drawing/toolbar_tool.dart';
@@ -14,7 +18,7 @@ import 'package:sketcher/drawing/undo_entry.dart';
 import 'package:sketcher/drawing/redo_entry.dart';
 import 'package:sketcher/models/draw_shape.dart';
 
-enum _Flyout { none, shape, color, stroke, strokeColor }
+enum _Flyout { none, shape, color, stroke, strokeColor, saveFormat }
 
 class DrawingPage extends StatefulWidget {
   const DrawingPage({super.key});
@@ -48,6 +52,9 @@ class _DrawingPageState extends State<DrawingPage> {
   _Flyout _flyout = _Flyout.none;
   double _flyoutLeft = 0;
   double _flyoutTop = 0;
+  Size _canvasSize = Size.zero;
+  String? _loadedBinaryPath;
+  SaveFormat _selectedSaveFormat = SaveFormat.bin;
 
   final GlobalKey _stackKey = GlobalKey(debugLabel: 'root_stack');
   final GlobalKey _keyShapeAnchor = GlobalKey(debugLabel: 'shape_anchor');
@@ -56,15 +63,18 @@ class _DrawingPageState extends State<DrawingPage> {
   final GlobalKey _keyStrokeColorAnchor = GlobalKey(
     debugLabel: 'stroke_color_anchor',
   );
+  final GlobalKey _keySaveAnchor = GlobalKey(debugLabel: 'save_anchor');
 
   final ScrollController _shapeScroll = ScrollController();
+  final ScrollController _saveFormatScroll = ScrollController();
 
-  static const String _binaryFileName = 'sketcher_scene.bin';
+  static const List<String> _sceneExtensions = <String>['bin'];
   static const String _ellipseIconAsset = 'assets/icons/ellipse_outline.svg';
 
   @override
   void dispose() {
     _shapeScroll.dispose();
+    _saveFormatScroll.dispose();
     super.dispose();
   }
 
@@ -174,6 +184,7 @@ class _DrawingPageState extends State<DrawingPage> {
   Widget _buildCanvasArea() {
     return LayoutBuilder(
       builder: (context, constraints) {
+        _canvasSize = Size(constraints.maxWidth, constraints.maxHeight);
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onPanStart: (details) {
@@ -248,6 +259,7 @@ class _DrawingPageState extends State<DrawingPage> {
       _Flyout.color => _fillColorPickerPanel(pillMaxWidth),
       _Flyout.stroke => _strokeWidthSliderPill(pillMaxWidth),
       _Flyout.strokeColor => _strokeColorPickerPanel(pillMaxWidth),
+      _Flyout.saveFormat => _saveFormatFlyout(pillMaxWidth),
     };
   }
 
@@ -378,14 +390,77 @@ class _DrawingPageState extends State<DrawingPage> {
         _roundToolButton(
           size: size,
           selected: false,
-          icon: Icons.save_rounded,
-          tooltip: 'Save scene',
+          icon: Icons.drive_folder_upload_rounded,
+          tooltip: 'Load scene',
           onTap: () {
             setState(() => _flyout = _Flyout.none);
-            _saveBinary();
+            _loadBinary();
           },
         ),
+        Padding(
+          key: _keySaveAnchor,
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: _roundToolButton(
+            size: size,
+            selected: _flyout == _Flyout.saveFormat,
+            icon: Icons.save_rounded,
+            tooltip: 'Save scene',
+            onTap: () => _toggleFlyout(_Flyout.saveFormat, _keySaveAnchor),
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _saveFormatFlyout(double maxWidth) {
+    return _pillStrip(
+      maxWidth: maxWidth,
+      controller: _saveFormatScroll,
+      children: SaveFormat.values.map((SaveFormat format) {
+        final bool isSelected = _selectedSaveFormat == format;
+        return Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Material(
+            color: isSelected ? Colors.black87 : Colors.white,
+            elevation: isSelected ? 3 : 1,
+            borderRadius: BorderRadius.circular(20),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () async {
+                setState(() {
+                  _selectedSaveFormat = format;
+                  _flyout = _Flyout.none;
+                });
+                await _saveScene(format);
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(
+                      format.icon,
+                      size: 18,
+                      color: isSelected ? Colors.white : Colors.black87,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      format.label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: isSelected ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -882,16 +957,170 @@ class _DrawingPageState extends State<DrawingPage> {
     });
   }
 
-  Future<void> _saveBinary() async {
+  Future<void> _saveScene(SaveFormat format) async {
+    if (format == SaveFormat.bin) {
+      await _saveAsBinary();
+      return;
+    }
+    await _saveAsImage(format);
+  }
+
+  Future<void> _saveAsBinary() async {
     try {
-      final SceneCodec codec = SceneCodec();
-      final Uint8List bytes = codec.encode(_shapes);
-      final String path = '${Directory.current.path}/$_binaryFileName';
-      await File(path).writeAsBytes(bytes, flush: true);
-      _showSnack('Saved: $path');
+      final Uint8List bytes = SceneCodec().encode(_shapes);
+
+      if (!kIsWeb && _loadedBinaryPath != null) {
+        final XFile file = XFile.fromData(
+          bytes,
+          name: SaveFormat.bin.defaultFileName,
+          mimeType: 'application/octet-stream',
+        );
+        await file.saveTo(_loadedBinaryPath!);
+        _showSnack('Saved: $_loadedBinaryPath');
+        return;
+      }
+
+      final String? outputPath = await FilePicker.saveFile(
+        dialogTitle: 'Save drawing scene',
+        fileName: SaveFormat.bin.defaultFileName,
+        type: FileType.custom,
+        allowedExtensions: _sceneExtensions,
+        bytes: bytes,
+      );
+
+      if (!mounted) return;
+      if (kIsWeb) {
+        _showSnack('Downloaded: ${SaveFormat.bin.defaultFileName}');
+        return;
+      }
+      if (outputPath == null) {
+        _showSnack('Save canceled.');
+        return;
+      }
+      _loadedBinaryPath = outputPath;
+      _showSnack('Saved: $outputPath');
     } catch (e) {
       _showSnack('Save failed: $e');
     }
+  }
+
+  Future<void> _loadBinary() async {
+    try {
+      final FilePickerResult? result = await FilePicker.pickFiles(
+        dialogTitle: 'Open drawing scene',
+        type: FileType.custom,
+        allowedExtensions: _sceneExtensions,
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null) {
+        _showSnack('Load canceled.');
+        return;
+      }
+
+      final PlatformFile pickedFile = result.files.single;
+      final Uint8List bytes =
+          pickedFile.bytes ?? await pickedFile.xFile.readAsBytes();
+      final List<DrawShape> loadedShapes = SceneCodec().decode(bytes);
+
+      if (!mounted) return;
+      setState(() {
+        _flyout = _Flyout.none;
+        _previewShape = null;
+        _shapes
+          ..clear()
+          ..addAll(loadedShapes);
+        _undoStack.clear();
+        _redoStack.clear();
+        _loadedBinaryPath = kIsWeb ? null : pickedFile.path;
+      });
+      _showSnack(
+        'Loaded ${loadedShapes.length} shapes from ${pickedFile.name}',
+      );
+    } catch (e) {
+      _showSnack('Load failed: $e');
+    }
+  }
+
+  Future<void> _saveAsImage(SaveFormat format) async {
+    if (_canvasSize.width <= 0 || _canvasSize.height <= 0) {
+      _showSnack('Save failed: invalid canvas size.');
+      return;
+    }
+
+    try {
+      final int width = _canvasSize.width.round();
+      final int height = _canvasSize.height.round();
+      final ui.PictureRecorder recorder = ui.PictureRecorder();
+      final Canvas canvas = Canvas(
+        recorder,
+        Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+      );
+
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+        Paint()..color = Colors.white,
+      );
+      DrawingPainter(
+        shapes: _shapes,
+        preview: null,
+      ).paint(canvas, Size(width.toDouble(), height.toDouble()));
+
+      final ui.Picture picture = recorder.endRecording();
+      final ui.Image image = await picture.toImage(width, height);
+      final Uint8List bytes = await _encodeImage(image, format);
+      image.dispose();
+      picture.dispose();
+
+      final String? outputPath = await FilePicker.saveFile(
+        dialogTitle: 'Save drawing image',
+        fileName: format.defaultFileName,
+        type: FileType.custom,
+        allowedExtensions: <String>[format.extension],
+        bytes: bytes,
+      );
+
+      if (!mounted) return;
+      if (kIsWeb) {
+        _showSnack('Downloaded: ${format.defaultFileName}');
+        return;
+      }
+      if (outputPath == null) {
+        _showSnack('Save canceled.');
+        return;
+      }
+      _showSnack('Saved: $outputPath');
+    } catch (e) {
+      _showSnack('Save failed: $e');
+    }
+  }
+
+  Future<Uint8List> _encodeImage(ui.Image image, SaveFormat format) async {
+    if (format == SaveFormat.png) {
+      final ByteData? pngData = await image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      if (pngData == null) {
+        throw StateError('Failed to encode PNG.');
+      }
+      return pngData.buffer.asUint8List();
+    }
+
+    final ByteData? rgbaData = await image.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    );
+    if (rgbaData == null) {
+      throw StateError('Failed to encode RGBA buffer for JPEG.');
+    }
+
+    final img.Image jpegImage = img.Image.fromBytes(
+      width: image.width,
+      height: image.height,
+      bytes: rgbaData.buffer,
+      numChannels: 4,
+      order: img.ChannelOrder.rgba,
+    );
+    return Uint8List.fromList(img.encodeJpg(jpegImage, quality: 92));
   }
 
   void _showSnack(String message) {

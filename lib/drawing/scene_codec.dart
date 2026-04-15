@@ -42,7 +42,10 @@ class SceneCodec {
   }
 
   List<DrawShape> decode(Uint8List bytes) {
-    final ByteData data = bytes.buffer.asByteData();
+    final ByteData data = bytes.buffer.asByteData(
+      bytes.offsetInBytes,
+      bytes.lengthInBytes,
+    );
     if (bytes.lengthInBytes < 8) {
       throw const FormatException('File too short.');
     }
@@ -79,15 +82,17 @@ class SceneCodec {
       final double y2 = data.getFloat32(o, Endian.little);
       o += 4;
 
-      result.add(DrawShape(
-        type: type,
-        start: Offset(x1, y1),
-        end: Offset(x2, y2),
-        strokeColor: strokeColor,
-        fillColor: fillColor,
-        strokeWidth: strokeWidth,
-        filled: filled,
-      ));
+      result.add(
+        DrawShape(
+          type: type,
+          start: Offset(x1, y1),
+          end: Offset(x2, y2),
+          strokeColor: strokeColor,
+          fillColor: fillColor,
+          strokeWidth: strokeWidth,
+          filled: filled,
+        ),
+      );
     }
     return result;
   }
