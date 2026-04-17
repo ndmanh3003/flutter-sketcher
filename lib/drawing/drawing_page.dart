@@ -1,24 +1,14 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
-import 'package:cross_file/cross_file.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_colorpicker/flutter_colorpicker.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:image/image.dart' as img;
 
-import 'package:sketcher/drawing/drawing_painter.dart';
+import 'package:sketcher/drawing/controllers/drawing_controller.dart';
 import 'package:sketcher/drawing/save_format.dart';
-import 'package:sketcher/drawing/scene_codec.dart';
-import 'package:sketcher/drawing/shape_hit_test.dart';
+import 'package:sketcher/drawing/services/file_operations.dart';
 import 'package:sketcher/drawing/toolbar_tool.dart';
-import 'package:sketcher/drawing/undo_entry.dart';
-import 'package:sketcher/drawing/redo_entry.dart';
-import 'package:sketcher/models/draw_shape.dart';
-
-enum _Flyout { none, shape, color, stroke, strokeColor, saveFormat }
+import 'package:sketcher/drawing/widgets/canvas_area.dart';
+import 'package:sketcher/drawing/widgets/flyout_panels.dart';
+import 'package:sketcher/drawing/widgets/toolbar_widgets.dart';
 
 class DrawingPage extends StatefulWidget {
   const DrawingPage({super.key});
@@ -28,33 +18,7 @@ class DrawingPage extends StatefulWidget {
 }
 
 class _DrawingPageState extends State<DrawingPage> {
-  final List<DrawShape> _shapes = <DrawShape>[];
-  final List<UndoEntry> _undoStack = <UndoEntry>[];
-  final List<RedoEntry> _redoStack = <RedoEntry>[];
-  final List<Color> _paletteColors = <Color>[
-    Colors.blue,
-    Colors.green,
-    Colors.yellow,
-    Colors.orange,
-    Colors.red,
-    Colors.purple,
-    Colors.black,
-    Colors.white,
-  ];
-
-  ShapeType _selectedType = ShapeType.line;
-  Color _strokeColor = Colors.black;
-  Color _bucketColor = Colors.blue;
-  double _strokeWidth = 2;
-  DrawShape? _previewShape;
-
-  ToolbarTool _toolbarTool = ToolbarTool.draw;
-  _Flyout _flyout = _Flyout.none;
-  double _flyoutLeft = 0;
-  double _flyoutTop = 0;
-  Size _canvasSize = Size.zero;
-  String? _loadedBinaryPath;
-  SaveFormat _selectedSaveFormat = SaveFormat.bin;
+  final DrawingController _ctrl = DrawingController();
 
   final GlobalKey _stackKey = GlobalKey(debugLabel: 'root_stack');
   final GlobalKey _keyShapeAnchor = GlobalKey(debugLabel: 'shape_anchor');
@@ -68,22 +32,30 @@ class _DrawingPageState extends State<DrawingPage> {
   final ScrollController _shapeScroll = ScrollController();
   final ScrollController _saveFormatScroll = ScrollController();
 
-  static const List<String> _sceneExtensions = <String>['bin'];
-  static const String _ellipseIconAsset = 'assets/icons/ellipse_outline.svg';
+  @override
+  void initState() {
+    super.initState();
+    _ctrl.addListener(_onControllerChanged);
+  }
 
   @override
   void dispose() {
+    _ctrl.removeListener(_onControllerChanged);
+    _ctrl.dispose();
     _shapeScroll.dispose();
     _saveFormatScroll.dispose();
     super.dispose();
   }
 
-  void _toggleFlyout(_Flyout kind, GlobalKey anchorKey) {
-    final bool closing = _flyout == kind;
-    setState(() {
-      _flyout = closing ? _Flyout.none : kind;
-    });
-    if (!closing) {
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  // ── Flyout positioning (requires widget-tree access) ───────────────────
+
+  void _handleToggleFlyout(FlyoutKind kind, GlobalKey anchorKey) {
+    final bool opened = _ctrl.toggleFlyout(kind);
+    if (opened) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _syncFlyoutToAnchor(anchorKey);
       });
@@ -91,7 +63,7 @@ class _DrawingPageState extends State<DrawingPage> {
   }
 
   void _syncFlyoutToAnchor(GlobalKey anchorKey) {
-    if (!mounted || _flyout == _Flyout.none) return;
+    if (!mounted || _ctrl.flyout == FlyoutKind.none) return;
     final BuildContext? stackCtx = _stackKey.currentContext;
     final BuildContext? anchorCtx = anchorKey.currentContext;
     if (stackCtx == null || anchorCtx == null) return;
@@ -106,1027 +78,154 @@ class _DrawingPageState extends State<DrawingPage> {
     final double screenH = MediaQuery.sizeOf(context).height;
     const double toolSize = 52;
     final bool isColorFlyout =
-        _flyout == _Flyout.color || _flyout == _Flyout.strokeColor;
+        _ctrl.flyout == FlyoutKind.color ||
+        _ctrl.flyout == FlyoutKind.strokeColor;
     final double pillMaxW = isColorFlyout
         ? math.min(340.0, stackW - toolSize - 48)
         : math.min(280.0, stackW - toolSize - 48);
     const double gap = 8;
-    setState(() {
-      // Keep the panel to the left of its anchor button while staying onscreen.
-      final double preferredLeft = rel.dx - pillMaxW - gap;
-      final double minLeft = gap;
-      final double maxLeft = math.max(minLeft, stackW - pillMaxW - gap);
-      _flyoutLeft = preferredLeft.clamp(minLeft, maxLeft).toDouble();
-      _flyoutTop = rel.dy;
-      // Clamp top so the color picker doesn't overflow the screen
-      if (_flyout == _Flyout.color || _flyout == _Flyout.strokeColor) {
-        final double maxTop = math.min(screenH, stackH) - 480;
-        if (_flyoutTop > maxTop && maxTop > 0) {
-          _flyoutTop = maxTop;
-        }
+    final double preferredLeft = rel.dx - pillMaxW - gap;
+    final double minLeft = gap;
+    final double maxLeft = math.max(minLeft, stackW - pillMaxW - gap);
+    double left = preferredLeft.clamp(minLeft, maxLeft).toDouble();
+    double top = rel.dy;
+    if (_ctrl.flyout == FlyoutKind.color ||
+        _ctrl.flyout == FlyoutKind.strokeColor) {
+      final double maxTop = math.min(screenH, stackH) - 480;
+      if (top > maxTop && maxTop > 0) {
+        top = maxTop;
       }
-    });
-  }
-
-  bool _dismissFlyoutIfOpen() {
-    if (_flyout == _Flyout.none) return false;
-    setState(() => _flyout = _Flyout.none);
-    return true;
-  }
-
-  void _scrollStrip(ScrollController c, double delta) {
-    if (!c.hasClients) return;
-    final double next = (c.offset + delta).clamp(
-      0.0,
-      c.position.maxScrollExtent,
-    );
-    c.animateTo(
-      next,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    const double toolSize = 52;
-    final double screenW = MediaQuery.sizeOf(context).width;
-    final bool isColorFlyout =
-        _flyout == _Flyout.color || _flyout == _Flyout.strokeColor;
-    final double pillMaxWidth = isColorFlyout
-        ? math.min(340.0, screenW - toolSize - 48)
-        : math.min(280.0, screenW - toolSize - 48);
-    return Scaffold(
-      body: SafeArea(
-        child: Stack(
-          key: _stackKey,
-          clipBehavior: Clip.none,
-          children: [
-            Positioned.fill(child: _buildCanvasArea()),
-            if (_flyout != _Flyout.none)
-              Positioned(
-                left: _flyoutLeft,
-                top: _flyoutTop,
-                child: _floatingFlyoutPanel(pillMaxWidth),
-              ),
-            Positioned(right: 8, top: 8, child: _toolbarTopDock(toolSize)),
-            Positioned(
-              right: 8,
-              bottom: 8,
-              child: _toolbarBottomDock(toolSize),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCanvasArea() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        _canvasSize = Size(constraints.maxWidth, constraints.maxHeight);
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanStart: (details) {
-            if (_dismissFlyoutIfOpen()) return;
-            if (_toolbarTool != ToolbarTool.draw) return;
-            _startDraw(details.localPosition);
-          },
-          onPanUpdate: (details) {
-            if (_toolbarTool != ToolbarTool.draw) return;
-            _updateDraw(details.localPosition);
-          },
-          onPanEnd: (_) {
-            if (_toolbarTool != ToolbarTool.draw) return;
-            _commitDraw();
-          },
-          onTapDown: (details) {
-            if (_dismissFlyoutIfOpen()) return;
-            if (_toolbarTool == ToolbarTool.fill) {
-              _fillAt(details.localPosition);
-              return;
-            }
-            if (_toolbarTool == ToolbarTool.draw) {
-              _drawPointIfNeeded(details.localPosition);
-            }
-          },
-          child: ColoredBox(
-            color: Colors.white,
-            child: CustomPaint(
-              size: Size(constraints.maxWidth, constraints.maxHeight),
-              painter: DrawingPainter(shapes: _shapes, preview: _previewShape),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _floatingFlyoutPanel(double pillMaxWidth) {
-    return switch (_flyout) {
-      _Flyout.none => const SizedBox.shrink(),
-      _Flyout.shape => _pillStrip(
-        maxWidth: pillMaxWidth,
-        controller: _shapeScroll,
-        children: ShapeType.values.map((ShapeType type) {
-          final bool sel = type == _selectedType;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Material(
-              color: sel ? Colors.black87 : Colors.white,
-              elevation: sel ? 3 : 1,
-              shape: const CircleBorder(),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: () => setState(() => _selectedType = type),
-                child: SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: Center(
-                    child: _shapeGlyph(
-                      type,
-                      color: sel ? Colors.white : Colors.black87,
-                      size: 22,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-      _Flyout.color => _fillColorPickerPanel(pillMaxWidth),
-      _Flyout.stroke => _strokeWidthSliderPill(pillMaxWidth),
-      _Flyout.strokeColor => _strokeColorPickerPanel(pillMaxWidth),
-      _Flyout.saveFormat => _saveFormatFlyout(pillMaxWidth),
-    };
-  }
-
-  Widget _toolbarChrome({
-    required double size,
-    required List<Widget> children,
-  }) {
-    return Material(
-      elevation: 6,
-      shadowColor: Colors.black38,
-      borderRadius: BorderRadius.circular(size / 2 + 4),
-      color: const Color(0xFFE8E8E8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: children,
-        ),
-      ),
-    );
-  }
-
-  Widget _toolbarTopDock(double size) {
-    final List<Widget> modeTools = _toolbarTool == ToolbarTool.draw
-        ? <Widget>[
-            Padding(
-              key: _keyShapeAnchor,
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: _roundToolButton(
-                size: size,
-                selected: _flyout == _Flyout.shape,
-                icon: _shapeIcon(_selectedType),
-                iconChild: _shapeGlyph(
-                  _selectedType,
-                  color: _flyout == _Flyout.shape
-                      ? Colors.white
-                      : Colors.black87,
-                  size: 24,
-                ),
-                tooltip: 'Shape',
-                onTap: () => _toggleFlyout(_Flyout.shape, _keyShapeAnchor),
-              ),
-            ),
-            Padding(
-              key: _keyStrokeAnchor,
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: _roundToolButton(
-                size: size,
-                selected: _flyout == _Flyout.stroke,
-                icon: Icons.line_weight,
-                tooltip: 'Stroke width',
-                onTap: () => _toggleFlyout(_Flyout.stroke, _keyStrokeAnchor),
-              ),
-            ),
-            Padding(
-              key: _keyStrokeColorAnchor,
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: _strokeColorAnchor(
-                size: size,
-                onTap: () =>
-                    _toggleFlyout(_Flyout.strokeColor, _keyStrokeColorAnchor),
-              ),
-            ),
-          ]
-        : <Widget>[
-            Padding(
-              key: _keyColorAnchor,
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: _bucketColorAnchor(
-                size: size,
-                onTap: () => _toggleFlyout(_Flyout.color, _keyColorAnchor),
-              ),
-            ),
-          ];
-
-    return _toolbarChrome(
-      size: size,
-      children: [
-        _roundToolButton(
-          size: size,
-          selected: false,
-          icon: _toolbarTool == ToolbarTool.fill
-              ? Icons.format_color_fill
-              : Icons.brush,
-          tooltip: _toolbarTool == ToolbarTool.fill
-              ? 'Fill mode - tap for draw mode'
-              : 'Draw mode - tap for fill mode',
-          onTap: () => setState(() {
-            _flyout = _Flyout.none;
-            _toolbarTool = _toolbarTool == ToolbarTool.fill
-                ? ToolbarTool.draw
-                : ToolbarTool.fill;
-          }),
-        ),
-        ...modeTools,
-      ],
-    );
-  }
-
-  Widget _toolbarBottomDock(double size) {
-    return _toolbarChrome(
-      size: size,
-      children: [
-        _roundToolButton(
-          size: size,
-          selected: false,
-          icon: Icons.undo,
-          tooltip: 'Undo',
-          enabled: _undoStack.isNotEmpty,
-          onTap: _undo,
-        ),
-        _roundToolButton(
-          size: size,
-          selected: false,
-          icon: Icons.redo,
-          tooltip: 'Redo',
-          enabled: _redoStack.isNotEmpty,
-          onTap: _redo,
-        ),
-        _roundToolButton(
-          size: size,
-          selected: false,
-          icon: Icons.delete_outline,
-          tooltip: 'Clear all',
-          onTap: _clearCanvas,
-        ),
-        _roundToolButton(
-          size: size,
-          selected: false,
-          icon: Icons.drive_folder_upload_rounded,
-          tooltip: 'Load scene',
-          onTap: () {
-            setState(() => _flyout = _Flyout.none);
-            _loadBinary();
-          },
-        ),
-        Padding(
-          key: _keySaveAnchor,
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: _roundToolButton(
-            size: size,
-            selected: _flyout == _Flyout.saveFormat,
-            icon: Icons.save_rounded,
-            tooltip: 'Save scene',
-            onTap: () => _toggleFlyout(_Flyout.saveFormat, _keySaveAnchor),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _saveFormatFlyout(double maxWidth) {
-    return _pillStrip(
-      maxWidth: maxWidth,
-      controller: _saveFormatScroll,
-      children: SaveFormat.values.map((SaveFormat format) {
-        final bool isSelected = _selectedSaveFormat == format;
-        return Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: Material(
-            color: isSelected ? Colors.black87 : Colors.white,
-            elevation: isSelected ? 3 : 1,
-            borderRadius: BorderRadius.circular(20),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () async {
-                setState(() {
-                  _selectedSaveFormat = format;
-                  _flyout = _Flyout.none;
-                });
-                await _saveScene(format);
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Icon(
-                      format.icon,
-                      size: 18,
-                      color: isSelected ? Colors.white : Colors.black87,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      format.label,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: isSelected ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _bucketColorAnchor({
-    required double size,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: 'Bucket fill color',
-      child: Material(
-        elevation: _flyout == _Flyout.color ? 5 : 4,
-        shadowColor: Colors.black45,
-        shape: const CircleBorder(),
-        color: _bucketColor,
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 3),
-                boxShadow: const [
-                  BoxShadow(
-                    blurRadius: 2,
-                    offset: Offset(0, 1),
-                    color: Color(0x33000000),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _strokeColorAnchor({
-    required double size,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: 'Stroke color',
-      child: Material(
-        elevation: _flyout == _Flyout.strokeColor ? 5 : 4,
-        shadowColor: Colors.black45,
-        shape: const CircleBorder(),
-        color: _strokeColor,
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 3),
-                boxShadow: const [
-                  BoxShadow(
-                    blurRadius: 2,
-                    offset: Offset(0, 1),
-                    color: Color(0x33000000),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _fillColorPickerPanel(double maxWidth) {
-    return _colorPickerPanel(
-      maxWidth: maxWidth,
-      selectedColor: _bucketColor,
-      onColorChanged: (Color color) {
-        setState(() => _bucketColor = color);
-      },
-    );
-  }
-
-  Widget _strokeColorPickerPanel(double maxWidth) {
-    return _colorPickerPanel(
-      maxWidth: maxWidth,
-      selectedColor: _strokeColor,
-      onColorChanged: (Color color) {
-        setState(() => _strokeColor = color);
-      },
-    );
-  }
-
-  Widget _colorPickerPanel({
-    required double maxWidth,
-    required Color selectedColor,
-    required ValueChanged<Color> onColorChanged,
-  }) {
-    return Material(
-      elevation: 4,
-      shadowColor: Colors.black26,
-      borderRadius: BorderRadius.circular(16),
-      color: const Color(0xFFF5F5F5),
-      child: SizedBox(
-        width: maxWidth,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Color picker
-              ColorPicker(
-                pickerColor: selectedColor,
-                onColorChanged: onColorChanged,
-                enableAlpha: false,
-                hexInputBar: true,
-                labelTypes: const [],
-                pickerAreaHeightPercent: 0.7,
-                portraitOnly: true,
-                displayThumbColor: true,
-                pickerAreaBorderRadius: const BorderRadius.all(
-                  Radius.circular(10),
-                ),
-              ),
-              const SizedBox(height: 8),
-              // Quick palette row
-              SizedBox(
-                height: 40,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _paletteColors.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 6),
-                  itemBuilder: (context, index) {
-                    final Color c = _paletteColors[index];
-                    final bool sel = c.toARGB32() == selectedColor.toARGB32();
-                    return _paletteColorDot(
-                      c,
-                      selected: sel,
-                      onTap: () => onColorChanged(c),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _paletteColorDot(
-    Color color, {
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      elevation: selected ? 3 : 1,
-      shadowColor: Colors.black38,
-      shape: const CircleBorder(),
-      clipBehavior: Clip.antiAlias,
-      color: color,
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          width: 32,
-          height: 32,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: selected ? Colors.black : Colors.white,
-                width: selected ? 3 : 2,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _strokeWidthSliderPill(double maxWidth) {
-    return Material(
-      elevation: 3,
-      shadowColor: Colors.black26,
-      borderRadius: BorderRadius.circular(28),
-      color: const Color(0xFFF2F2F2),
-      child: SizedBox(
-        width: maxWidth,
-        height: 56,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
-            ),
-            child: Slider(
-              min: 1,
-              max: 20,
-              divisions: 19,
-              value: _strokeWidth.clamp(1, 20),
-              onChanged: (double v) => setState(() => _strokeWidth = v),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _pillStrip({
-    required double maxWidth,
-    required ScrollController controller,
-    required List<Widget> children,
-  }) {
-    return Material(
-      elevation: 3,
-      shadowColor: Colors.black26,
-      borderRadius: BorderRadius.circular(28),
-      color: const Color(0xFFF2F2F2),
-      child: SizedBox(
-        height: 56,
-        width: maxWidth,
-        child: Row(
-          children: [
-            IconButton(
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 36, minHeight: 48),
-              icon: const Icon(Icons.chevron_left, color: Colors.black45),
-              onPressed: () => _scrollStrip(controller, -72),
-            ),
-            Expanded(
-              child: ListView(
-                controller: controller,
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                children: children,
-              ),
-            ),
-            IconButton(
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 36, minHeight: 48),
-              icon: const Icon(Icons.chevron_right, color: Colors.black45),
-              onPressed: () => _scrollStrip(controller, 72),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _roundToolButton({
-    required double size,
-    required bool selected,
-    required IconData icon,
-    Widget? iconChild,
-    required VoidCallback onTap,
-    bool enabled = true,
-    String? tooltip,
-  }) {
-    final bool active = enabled;
-    final Color iconColor = active
-        ? (selected ? Colors.white : Colors.black87)
-        : Colors.black38;
-    Widget child = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Material(
-        color: active
-            ? (selected ? Colors.black87 : Colors.white)
-            : const Color(0xFFE0E0E0),
-        elevation: selected ? 5 : 3,
-        shadowColor: Colors.black45,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: active ? onTap : null,
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: Center(
-              child: iconChild ?? Icon(icon, size: 24, color: iconColor),
-            ),
-          ),
-        ),
-      ),
-    );
-    if (tooltip != null) {
-      child = Tooltip(message: tooltip, child: child);
     }
-    return child;
+    _ctrl.updateFlyoutPosition(left, top);
   }
 
-  void _fillAt(Offset p) {
-    final Color solid = _opaque(_bucketColor);
-    for (int i = _shapes.length - 1; i >= 0; i--) {
-      final DrawShape s = _shapes[i];
-      if (!ShapeHitTest.isClosedRegion(s.type)) continue;
-      if (!ShapeHitTest.contains(s, p)) continue;
-      if (s.filled && s.fillColor == solid) return;
-      setState(() {
-        _redoStack.clear();
-        _undoStack.add(
-          UndoFillRestore(
-            shapeIndex: i,
-            fillColor: s.fillColor,
-            filled: s.filled,
-          ),
-        );
-        _shapes[i] = s.copyWith(fillColor: solid, filled: true);
-      });
+  // ── Canvas gesture routing ─────────────────────────────────────────────
+
+  void _onPanStart(DragStartDetails details) {
+    if (_ctrl.dismissFlyoutIfOpen()) return;
+    if (_ctrl.toolbarTool != ToolbarTool.draw) return;
+    _ctrl.startDraw(details.localPosition);
+  }
+
+  void _onPanUpdate(DragUpdateDetails details) {
+    if (_ctrl.toolbarTool != ToolbarTool.draw) return;
+    _ctrl.updateDraw(details.localPosition);
+  }
+
+  void _onPanEnd(DragEndDetails _) {
+    if (_ctrl.toolbarTool != ToolbarTool.draw) return;
+    _ctrl.commitDraw();
+  }
+
+  void _onTapDown(TapDownDetails details) {
+    if (_ctrl.dismissFlyoutIfOpen()) return;
+    if (_ctrl.toolbarTool == ToolbarTool.fill) {
+      _ctrl.fillAt(details.localPosition);
       return;
     }
-  }
-
-  IconData _shapeIcon(ShapeType type) {
-    return switch (type) {
-      ShapeType.point => Icons.circle,
-      ShapeType.line => Icons.horizontal_rule,
-      ShapeType.ellipse =>
-        Icons
-            .panorama_wide_angle_outlined, // Overide by shapeGlyph with correct ellipse icon
-      ShapeType.circle => Icons.circle_outlined,
-      ShapeType.square => Icons.square_outlined,
-      ShapeType.rectangle => Icons.rectangle_outlined,
-    };
-  }
-
-  Widget _shapeGlyph(
-    ShapeType type, {
-    required Color color,
-    required double size,
-  }) {
-    if (type == ShapeType.ellipse) {
-      return SvgPicture.asset(
-        _ellipseIconAsset,
-        width: size,
-        height: size,
-        colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
-      );
-    }
-
-    if (type == ShapeType.line) {
-      return Transform.rotate(
-        angle: -math.pi / 4,
-        child: Icon(Icons.horizontal_rule, color: color, size: size),
-      );
-    }
-
-    if (type == ShapeType.point) {
-      return Icon(Icons.circle, color: color, size: math.max(1.5, size / 2));
-    }
-
-    return Icon(_shapeIcon(type), color: color, size: size);
-  }
-
-  void _drawPointIfNeeded(Offset point) {
-    if (_selectedType != ShapeType.point) return;
-    setState(() {
-      final Color c = _opaque(_strokeColor);
-      final DrawShape shape = DrawShape(
-        type: ShapeType.point,
-        start: point,
-        end: point,
-        strokeColor: c,
-        fillColor: c,
-        strokeWidth: _strokeWidth,
-        filled: true,
-      );
-      _shapes.add(shape);
-      _redoStack.clear();
-      _undoStack.add(UndoAddShape(shape: shape));
-    });
-  }
-
-  void _startDraw(Offset point) {
-    if (_selectedType == ShapeType.point) return;
-    setState(() {
-      _previewShape = DrawShape(
-        type: _selectedType,
-        start: point,
-        end: point,
-        strokeColor: _strokeColor,
-        fillColor: Colors.transparent,
-        strokeWidth: _strokeWidth,
-        filled: false,
-      );
-    });
-  }
-
-  static Color _opaque(Color c) => c.withValues(alpha: 1);
-
-  void _updateDraw(Offset point) {
-    if (_previewShape == null) return;
-    setState(() => _previewShape = _previewShape!.copyWith(end: point));
-  }
-
-  void _commitDraw() {
-    if (_previewShape == null) return;
-    setState(() {
-      final DrawShape shape = _previewShape!;
-      _shapes.add(shape);
-      _redoStack.clear();
-      _undoStack.add(UndoAddShape(shape: shape));
-      _previewShape = null;
-    });
-  }
-
-  void _clearCanvas() {
-    if (_shapes.isEmpty) {
-      setState(() {
-        _flyout = _Flyout.none;
-        _previewShape = null;
-      });
-      return;
-    }
-    setState(() {
-      _flyout = _Flyout.none;
-      _previewShape = null;
-      _redoStack.clear();
-      _undoStack.add(
-        UndoClearCanvas(clearedShapes: List<DrawShape>.of(_shapes)),
-      );
-      _shapes.clear();
-    });
-  }
-
-  void _undo() {
-    if (_undoStack.isEmpty) return;
-    setState(() {
-      _flyout = _Flyout.none;
-      final UndoEntry e = _undoStack.removeLast();
-      if (e is UndoAddShape) {
-        if (_shapes.isNotEmpty) {
-          final DrawShape removed = _shapes.removeLast();
-          _redoStack.add(RedoAddShape(shape: removed));
-        }
-      } else if (e is UndoFillRestore) {
-        final int i = e.shapeIndex;
-        if (i >= 0 && i < _shapes.length) {
-          final DrawShape s = _shapes[i];
-          _redoStack.add(
-            RedoFillRestore(
-              shapeIndex: i,
-              fillColor: s.fillColor,
-              filled: s.filled,
-            ),
-          );
-          _shapes[i] = s.copyWith(fillColor: e.fillColor, filled: e.filled);
-        }
-      } else if (e is UndoClearCanvas) {
-        _redoStack.add(
-          RedoClearCanvas(clearedShapes: List<DrawShape>.of(e.clearedShapes)),
-        );
-        _shapes
-          ..clear()
-          ..addAll(e.clearedShapes);
-      }
-    });
-  }
-
-  void _redo() {
-    if (_redoStack.isEmpty) return;
-    setState(() {
-      _flyout = _Flyout.none;
-      final RedoEntry e = _redoStack.removeLast();
-      if (e is RedoAddShape) {
-        _shapes.add(e.shape);
-        _undoStack.add(UndoAddShape(shape: e.shape));
-      } else if (e is RedoFillRestore) {
-        final int i = e.shapeIndex;
-        if (i >= 0 && i < _shapes.length) {
-          final DrawShape s = _shapes[i];
-          _undoStack.add(
-            UndoFillRestore(
-              shapeIndex: i,
-              fillColor: s.fillColor,
-              filled: s.filled,
-            ),
-          );
-          _shapes[i] = s.copyWith(fillColor: e.fillColor, filled: e.filled);
-        }
-      } else if (e is RedoClearCanvas) {
-        _undoStack.add(
-          UndoClearCanvas(clearedShapes: List<DrawShape>.of(e.clearedShapes)),
-        );
-        _shapes.clear();
-      }
-    });
-  }
-
-  Future<void> _saveScene(SaveFormat format) async {
-    if (format == SaveFormat.bin) {
-      await _saveAsBinary();
-      return;
-    }
-    await _saveAsImage(format);
-  }
-
-  Future<void> _saveAsBinary() async {
-    try {
-      final Uint8List bytes = SceneCodec().encode(_shapes);
-
-      if (!kIsWeb && _loadedBinaryPath != null) {
-        final XFile file = XFile.fromData(
-          bytes,
-          name: SaveFormat.bin.defaultFileName,
-          mimeType: 'application/octet-stream',
-        );
-        await file.saveTo(_loadedBinaryPath!);
-        _showSnack('Saved: $_loadedBinaryPath');
-        return;
-      }
-
-      final String? outputPath = await FilePicker.saveFile(
-        dialogTitle: 'Save drawing scene',
-        fileName: SaveFormat.bin.defaultFileName,
-        type: FileType.custom,
-        allowedExtensions: _sceneExtensions,
-        bytes: bytes,
-      );
-
-      if (!mounted) return;
-      if (kIsWeb) {
-        _showSnack('Downloaded: ${SaveFormat.bin.defaultFileName}');
-        return;
-      }
-      if (outputPath == null) {
-        _showSnack('Save canceled.');
-        return;
-      }
-      _loadedBinaryPath = outputPath;
-      _showSnack('Saved: $outputPath');
-    } catch (e) {
-      _showSnack('Save failed: $e');
+    if (_ctrl.toolbarTool == ToolbarTool.draw) {
+      _ctrl.drawPointIfNeeded(details.localPosition);
     }
   }
 
-  Future<void> _loadBinary() async {
-    try {
-      final FilePickerResult? result = await FilePicker.pickFiles(
-        dialogTitle: 'Open drawing scene',
-        type: FileType.custom,
-        allowedExtensions: _sceneExtensions,
-        allowMultiple: false,
-        withData: true,
-      );
-      if (result == null) {
-        _showSnack('Load canceled.');
-        return;
-      }
-
-      final PlatformFile pickedFile = result.files.single;
-      final Uint8List bytes =
-          pickedFile.bytes ?? await pickedFile.xFile.readAsBytes();
-      final List<DrawShape> loadedShapes = SceneCodec().decode(bytes);
-
-      if (!mounted) return;
-      setState(() {
-        _flyout = _Flyout.none;
-        _previewShape = null;
-        _shapes
-          ..clear()
-          ..addAll(loadedShapes);
-        _undoStack.clear();
-        _redoStack.clear();
-        _loadedBinaryPath = kIsWeb ? null : pickedFile.path;
-      });
-      _showSnack(
-        'Loaded ${loadedShapes.length} shapes from ${pickedFile.name}',
-      );
-    } catch (e) {
-      _showSnack('Load failed: $e');
-    }
-  }
-
-  Future<void> _saveAsImage(SaveFormat format) async {
-    if (_canvasSize.width <= 0 || _canvasSize.height <= 0) {
-      _showSnack('Save failed: invalid canvas size.');
-      return;
-    }
-
-    try {
-      final int width = _canvasSize.width.round();
-      final int height = _canvasSize.height.round();
-      final ui.PictureRecorder recorder = ui.PictureRecorder();
-      final Canvas canvas = Canvas(
-        recorder,
-        Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
-      );
-
-      canvas.drawRect(
-        Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
-        Paint()..color = Colors.white,
-      );
-      DrawingPainter(
-        shapes: _shapes,
-        preview: null,
-      ).paint(canvas, Size(width.toDouble(), height.toDouble()));
-
-      final ui.Picture picture = recorder.endRecording();
-      final ui.Image image = await picture.toImage(width, height);
-      final Uint8List bytes = await _encodeImage(image, format);
-      image.dispose();
-      picture.dispose();
-
-      final String? outputPath = await FilePicker.saveFile(
-        dialogTitle: 'Save drawing image',
-        fileName: format.defaultFileName,
-        type: FileType.custom,
-        allowedExtensions: <String>[format.extension],
-        bytes: bytes,
-      );
-
-      if (!mounted) return;
-      if (kIsWeb) {
-        _showSnack('Downloaded: ${format.defaultFileName}');
-        return;
-      }
-      if (outputPath == null) {
-        _showSnack('Save canceled.');
-        return;
-      }
-      _showSnack('Saved: $outputPath');
-    } catch (e) {
-      _showSnack('Save failed: $e');
-    }
-  }
-
-  Future<Uint8List> _encodeImage(ui.Image image, SaveFormat format) async {
-    if (format == SaveFormat.png) {
-      final ByteData? pngData = await image.toByteData(
-        format: ui.ImageByteFormat.png,
-      );
-      if (pngData == null) {
-        throw StateError('Failed to encode PNG.');
-      }
-      return pngData.buffer.asUint8List();
-    }
-
-    final ByteData? rgbaData = await image.toByteData(
-      format: ui.ImageByteFormat.rawRgba,
-    );
-    if (rgbaData == null) {
-      throw StateError('Failed to encode RGBA buffer for JPEG.');
-    }
-
-    final img.Image jpegImage = img.Image.fromBytes(
-      width: image.width,
-      height: image.height,
-      bytes: rgbaData.buffer,
-      numChannels: 4,
-      order: img.ChannelOrder.rgba,
-    );
-    return Uint8List.fromList(img.encodeJpg(jpegImage, quality: 92));
-  }
+  // ── File I/O ───────────────────────────────────────────────────────────
 
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _handleSaveFormat(SaveFormat format) async {
+    await FileOperations.saveScene(format, _ctrl, showSnack: _showSnack);
+  }
+
+  void _handleLoadScene() {
+    _ctrl.dismissFlyoutIfOpen();
+    FileOperations.loadBinary(_ctrl, showSnack: _showSnack);
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    const double toolSize = 52;
+    final double screenW = MediaQuery.sizeOf(context).width;
+    final bool isColorFlyout =
+        _ctrl.flyout == FlyoutKind.color ||
+        _ctrl.flyout == FlyoutKind.strokeColor;
+    final double pillMaxWidth = isColorFlyout
+        ? math.min(340.0, screenW - toolSize - 48)
+        : math.min(280.0, screenW - toolSize - 48);
+
+    return Scaffold(
+      body: SafeArea(
+        child: Stack(
+          key: _stackKey,
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              child: CanvasArea(
+                shapes: _ctrl.shapes,
+                previewShape: _ctrl.previewShape,
+                onPanStart: _onPanStart,
+                onPanUpdate: _onPanUpdate,
+                onPanEnd: _onPanEnd,
+                onTapDown: _onTapDown,
+                onCanvasSized: (size) => _ctrl.canvasSize = size,
+              ),
+            ),
+            if (_ctrl.flyout != FlyoutKind.none)
+              Positioned(
+                left: _ctrl.flyoutLeft,
+                top: _ctrl.flyoutTop,
+                child: FloatingFlyoutPanel(
+                  flyout: _ctrl.flyout,
+                  maxWidth: pillMaxWidth,
+                  controller: _ctrl,
+                  shapeScrollController: _shapeScroll,
+                  saveFormatScrollController: _saveFormatScroll,
+                  onSaveFormat: _handleSaveFormat,
+                ),
+              ),
+            Positioned(
+              right: 8,
+              top: 8,
+              child: ToolbarTopDock(
+                size: toolSize,
+                controller: _ctrl,
+                keyShapeAnchor: _keyShapeAnchor,
+                keyStrokeAnchor: _keyStrokeAnchor,
+                keyStrokeColorAnchor: _keyStrokeColorAnchor,
+                keyColorAnchor: _keyColorAnchor,
+                onToggleShapeFlyout: () =>
+                    _handleToggleFlyout(FlyoutKind.shape, _keyShapeAnchor),
+                onToggleStrokeFlyout: () =>
+                    _handleToggleFlyout(FlyoutKind.stroke, _keyStrokeAnchor),
+                onToggleStrokeColorFlyout: () => _handleToggleFlyout(
+                  FlyoutKind.strokeColor,
+                  _keyStrokeColorAnchor,
+                ),
+                onToggleColorFlyout: () =>
+                    _handleToggleFlyout(FlyoutKind.color, _keyColorAnchor),
+              ),
+            ),
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: ToolbarBottomDock(
+                size: toolSize,
+                controller: _ctrl,
+                keySaveAnchor: _keySaveAnchor,
+                onLoadScene: _handleLoadScene,
+                onToggleSaveFlyout: () =>
+                    _handleToggleFlyout(FlyoutKind.saveFormat, _keySaveAnchor),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
