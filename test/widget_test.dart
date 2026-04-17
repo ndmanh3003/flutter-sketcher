@@ -8,7 +8,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sketcher/app.dart';
-import 'package:sketcher/drawing/drawing_page.dart';
+import 'package:sketcher/drawing_page.dart';
 
 void main() {
   testWidgets('Sketcher app renders', (WidgetTester tester) async {

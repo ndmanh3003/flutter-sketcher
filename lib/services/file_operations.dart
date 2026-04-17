@@ -6,10 +6,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 
-import 'package:sketcher/drawing/controllers/drawing_controller.dart';
-import 'package:sketcher/drawing/drawing_painter.dart';
-import 'package:sketcher/drawing/save_format.dart';
-import 'package:sketcher/drawing/scene_codec.dart';
+import 'package:sketcher/controllers/drawing_controller.dart';
+import 'package:sketcher/widgets/drawing_painter.dart';
+import 'package:sketcher/models/save_format.dart';
+import 'package:sketcher/services/scene_codec.dart';
 import 'package:sketcher/models/draw_shape.dart';
 
 class FileOperations {

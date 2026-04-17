@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:sketcher/drawing/drawing_page.dart';
+import 'package:sketcher/drawing_page.dart';
 
 class SketcherApp extends StatelessWidget {
   const SketcherApp({super.key});

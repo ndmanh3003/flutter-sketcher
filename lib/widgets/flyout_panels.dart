@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 
-import 'package:sketcher/drawing/controllers/drawing_controller.dart';
-import 'package:sketcher/drawing/save_format.dart';
-import 'package:sketcher/drawing/widgets/shape_icon_helpers.dart';
+import 'package:sketcher/controllers/drawing_controller.dart';
+import 'package:sketcher/models/save_format.dart';
+import 'package:sketcher/widgets/shape_icon_helpers.dart';
 import 'package:sketcher/models/draw_shape.dart';
 
 class FloatingFlyoutPanel extends StatelessWidget {

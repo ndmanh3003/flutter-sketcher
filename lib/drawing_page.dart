@@ -2,13 +2,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import 'package:sketcher/drawing/controllers/drawing_controller.dart';
-import 'package:sketcher/drawing/save_format.dart';
-import 'package:sketcher/drawing/services/file_operations.dart';
-import 'package:sketcher/drawing/toolbar_tool.dart';
-import 'package:sketcher/drawing/widgets/canvas_area.dart';
-import 'package:sketcher/drawing/widgets/flyout_panels.dart';
-import 'package:sketcher/drawing/widgets/toolbar_widgets.dart';
+import 'package:sketcher/controllers/drawing_controller.dart';
+import 'package:sketcher/models/save_format.dart';
+import 'package:sketcher/services/file_operations.dart';
+import 'package:sketcher/widgets/canvas_area.dart';
+import 'package:sketcher/widgets/flyout_panels.dart';
+import 'package:sketcher/widgets/toolbar_widgets.dart';
 
 class DrawingPage extends StatefulWidget {
   const DrawingPage({super.key});

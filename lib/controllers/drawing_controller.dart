@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 
-import 'package:sketcher/drawing/redo_entry.dart';
-import 'package:sketcher/drawing/save_format.dart';
-import 'package:sketcher/drawing/shape_hit_test.dart';
-import 'package:sketcher/drawing/toolbar_tool.dart';
-import 'package:sketcher/drawing/undo_entry.dart';
+import 'package:sketcher/models/redo_entry.dart';
+import 'package:sketcher/models/save_format.dart';
+import 'package:sketcher/services/shape_hit_test.dart';
+import 'package:sketcher/models/undo_entry.dart';
 import 'package:sketcher/models/draw_shape.dart';
 
 enum FlyoutKind { none, shape, color, stroke, strokeColor, saveFormat }
+
+enum ToolbarTool { draw, fill }
 
 class DrawingController extends ChangeNotifier {
   final List<DrawShape> shapes = <DrawShape>[];

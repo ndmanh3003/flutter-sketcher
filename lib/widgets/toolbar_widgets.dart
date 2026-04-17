@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'package:sketcher/drawing/controllers/drawing_controller.dart';
-import 'package:sketcher/drawing/toolbar_tool.dart';
-import 'package:sketcher/drawing/widgets/shape_icon_helpers.dart';
+import 'package:sketcher/controllers/drawing_controller.dart';
+import 'package:sketcher/widgets/shape_icon_helpers.dart';
 
 class ToolbarChrome extends StatelessWidget {
   const ToolbarChrome({

@@ -1,1 +1,0 @@
-enum ToolbarTool { draw, fill }

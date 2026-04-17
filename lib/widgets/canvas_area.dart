@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:sketcher/drawing/drawing_painter.dart';
+import 'package:sketcher/widgets/drawing_painter.dart';
 import 'package:sketcher/models/draw_shape.dart';
 
 class CanvasArea extends StatelessWidget {
