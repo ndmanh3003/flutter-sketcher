@@ -11,6 +11,11 @@ enum FlyoutKind { none, shape, color, stroke, strokeColor, saveFormat }
 enum ToolbarTool { draw, fill }
 
 class DrawingController extends ChangeNotifier {
+  static const List<ToolbarTool> availableToolbarTools = <ToolbarTool>[
+    ToolbarTool.draw,
+    ToolbarTool.fill,
+  ];
+
   final List<DrawShape> shapes = <DrawShape>[];
   final List<UndoEntry> undoStack = <UndoEntry>[];
   final List<RedoEntry> redoStack = <RedoEntry>[];
@@ -62,11 +67,29 @@ class DrawingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setToolbarTool(ToolbarTool tool) {
+    bool shouldNotify = false;
+    if (flyout != FlyoutKind.none) {
+      flyout = FlyoutKind.none;
+      shouldNotify = true;
+    }
+    if (toolbarTool != tool) {
+      toolbarTool = tool;
+      shouldNotify = true;
+    }
+    if (shouldNotify) {
+      notifyListeners();
+    }
+  }
+
   void toggleToolbarTool() {
-    flyout = FlyoutKind.none;
-    toolbarTool =
-        toolbarTool == ToolbarTool.fill ? ToolbarTool.draw : ToolbarTool.fill;
-    notifyListeners();
+    final List<ToolbarTool> modes = availableToolbarTools;
+    if (modes.isEmpty) return;
+    final int currentIndex = modes.indexOf(toolbarTool);
+    final int nextIndex = currentIndex < 0
+        ? 0
+        : (currentIndex + 1) % modes.length;
+    setToolbarTool(modes[nextIndex]);
   }
 
   // ── Drawing ────────────────────────────────────────────────────────────
@@ -154,9 +177,7 @@ class DrawingController extends ChangeNotifier {
     flyout = FlyoutKind.none;
     previewShape = null;
     redoStack.clear();
-    undoStack.add(
-      UndoClearCanvas(clearedShapes: List<DrawShape>.of(shapes)),
-    );
+    undoStack.add(UndoClearCanvas(clearedShapes: List<DrawShape>.of(shapes)));
     shapes.clear();
     notifyListeners();
   }

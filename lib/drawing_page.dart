@@ -150,6 +150,8 @@ class _DrawingPageState extends State<DrawingPage> {
   @override
   Widget build(BuildContext context) {
     const double toolSize = 52;
+    const double modeBarTop = 8;
+    const double topDockTop = modeBarTop + toolSize + 18;
     final double screenW = MediaQuery.sizeOf(context).width;
     final bool isColorFlyout =
         _ctrl.flyout == FlyoutKind.color ||
@@ -190,7 +192,12 @@ class _DrawingPageState extends State<DrawingPage> {
               ),
             Positioned(
               right: 8,
-              top: 8,
+              top: modeBarTop,
+              child: ToolbarModeBar(size: toolSize, controller: _ctrl),
+            ),
+            Positioned(
+              right: 8,
+              top: topDockTop,
               child: ToolbarTopDock(
                 size: toolSize,
                 controller: _ctrl,

@@ -3,8 +3,52 @@ import 'package:flutter/material.dart';
 import 'package:sketcher/controllers/drawing_controller.dart';
 import 'package:sketcher/widgets/shape_icon_helpers.dart';
 
+class _ToolbarModeVisual {
+  const _ToolbarModeVisual({required this.icon, required this.tooltip});
+
+  final IconData icon;
+  final String tooltip;
+}
+
+const Map<ToolbarTool, _ToolbarModeVisual> _toolbarModeVisuals =
+    <ToolbarTool, _ToolbarModeVisual>{
+      ToolbarTool.draw: _ToolbarModeVisual(
+        icon: Icons.brush,
+        tooltip: 'Draw mode',
+      ),
+      ToolbarTool.fill: _ToolbarModeVisual(
+        icon: Icons.format_color_fill,
+        tooltip: 'Fill mode',
+      ),
+    };
+
 class ToolbarChrome extends StatelessWidget {
-  const ToolbarChrome({
+  const ToolbarChrome({super.key, required this.size, required this.children});
+
+  final double size;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 6,
+      shadowColor: Colors.black38,
+      borderRadius: BorderRadius.circular(size / 2 + 4),
+      color: const Color(0xFFE8E8E8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: children,
+        ),
+      ),
+    );
+  }
+}
+
+class ToolbarRowChrome extends StatelessWidget {
+  const ToolbarRowChrome({
     super.key,
     required this.size,
     required this.children,
@@ -21,8 +65,8 @@ class ToolbarChrome extends StatelessWidget {
       borderRadius: BorderRadius.circular(size / 2 + 4),
       color: const Color(0xFFE8E8E8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-        child: Column(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: children,
@@ -88,6 +132,45 @@ class RoundToolButton extends StatelessWidget {
   }
 }
 
+class ToolbarModeBar extends StatelessWidget {
+  const ToolbarModeBar({
+    super.key,
+    required this.size,
+    required this.controller,
+  });
+
+  final double size;
+  final DrawingController controller;
+
+  IconData _iconForMode(ToolbarTool mode) {
+    return _toolbarModeVisuals[mode]?.icon ?? Icons.extension_outlined;
+  }
+
+  String _tooltipForMode(ToolbarTool mode) {
+    return _toolbarModeVisuals[mode]?.tooltip ?? 'Mode';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ToolbarRowChrome(
+      size: size,
+      children: [
+        for (final ToolbarTool mode in DrawingController.availableToolbarTools)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1),
+            child: RoundToolButton(
+              size: size,
+              selected: controller.toolbarTool == mode,
+              icon: _iconForMode(mode),
+              tooltip: _tooltipForMode(mode),
+              onTap: () => controller.setToolbarTool(mode),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class ToolbarTopDock extends StatelessWidget {
   const ToolbarTopDock({
     super.key,
@@ -114,80 +197,93 @@ class ToolbarTopDock extends StatelessWidget {
   final VoidCallback onToggleStrokeColorFlyout;
   final VoidCallback onToggleColorFlyout;
 
+  List<Widget> _buildDrawModeTools() {
+    return <Widget>[
+      Padding(
+        key: keyShapeAnchor,
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: RoundToolButton(
+          size: size,
+          selected: controller.flyout == FlyoutKind.shape,
+          icon: shapeIcon(controller.selectedType),
+          iconChild: shapeGlyph(
+            controller.selectedType,
+            color: controller.flyout == FlyoutKind.shape
+                ? Colors.white
+                : Colors.black87,
+            size: 24,
+          ),
+          tooltip: 'Shape',
+          onTap: onToggleShapeFlyout,
+        ),
+      ),
+      Padding(
+        key: keyStrokeAnchor,
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: RoundToolButton(
+          size: size,
+          selected: controller.flyout == FlyoutKind.stroke,
+          icon: Icons.line_weight,
+          tooltip: 'Stroke width',
+          onTap: onToggleStrokeFlyout,
+        ),
+      ),
+      Padding(
+        key: keyStrokeColorAnchor,
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: StrokeColorAnchor(
+          size: size,
+          strokeColor: controller.strokeColor,
+          isSelected: controller.flyout == FlyoutKind.strokeColor,
+          onTap: onToggleStrokeColorFlyout,
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _buildFillModeTools() {
+    return <Widget>[
+      Padding(
+        key: keyColorAnchor,
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: BucketColorAnchor(
+          size: size,
+          bucketColor: controller.bucketColor,
+          isSelected: controller.flyout == FlyoutKind.color,
+          onTap: onToggleColorFlyout,
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _buildFallbackModeTools() {
+    return <Widget>[
+      RoundToolButton(
+        size: size,
+        selected: false,
+        enabled: false,
+        icon: Icons.build_circle_outlined,
+        tooltip: 'Mode tools unavailable',
+        onTap: () {},
+      ),
+    ];
+  }
+
+  List<Widget> _buildToolsForCurrentMode() {
+    if (controller.toolbarTool == ToolbarTool.draw) {
+      return _buildDrawModeTools();
+    }
+    if (controller.toolbarTool == ToolbarTool.fill) {
+      return _buildFillModeTools();
+    }
+    return _buildFallbackModeTools();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final List<Widget> modeTools = controller.toolbarTool == ToolbarTool.draw
-        ? <Widget>[
-            Padding(
-              key: keyShapeAnchor,
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: RoundToolButton(
-                size: size,
-                selected: controller.flyout == FlyoutKind.shape,
-                icon: shapeIcon(controller.selectedType),
-                iconChild: shapeGlyph(
-                  controller.selectedType,
-                  color: controller.flyout == FlyoutKind.shape
-                      ? Colors.white
-                      : Colors.black87,
-                  size: 24,
-                ),
-                tooltip: 'Shape',
-                onTap: onToggleShapeFlyout,
-              ),
-            ),
-            Padding(
-              key: keyStrokeAnchor,
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: RoundToolButton(
-                size: size,
-                selected: controller.flyout == FlyoutKind.stroke,
-                icon: Icons.line_weight,
-                tooltip: 'Stroke width',
-                onTap: onToggleStrokeFlyout,
-              ),
-            ),
-            Padding(
-              key: keyStrokeColorAnchor,
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: StrokeColorAnchor(
-                size: size,
-                strokeColor: controller.strokeColor,
-                isSelected: controller.flyout == FlyoutKind.strokeColor,
-                onTap: onToggleStrokeColorFlyout,
-              ),
-            ),
-          ]
-        : <Widget>[
-            Padding(
-              key: keyColorAnchor,
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: BucketColorAnchor(
-                size: size,
-                bucketColor: controller.bucketColor,
-                isSelected: controller.flyout == FlyoutKind.color,
-                onTap: onToggleColorFlyout,
-              ),
-            ),
-          ];
+    final List<Widget> modeTools = _buildToolsForCurrentMode();
 
-    return ToolbarChrome(
-      size: size,
-      children: [
-        RoundToolButton(
-          size: size,
-          selected: false,
-          icon: controller.toolbarTool == ToolbarTool.fill
-              ? Icons.format_color_fill
-              : Icons.brush,
-          tooltip: controller.toolbarTool == ToolbarTool.fill
-              ? 'Fill mode - tap for draw mode'
-              : 'Draw mode - tap for fill mode',
-          onTap: controller.toggleToolbarTool,
-        ),
-        ...modeTools,
-      ],
-    );
+    return ToolbarChrome(size: size, children: modeTools);
   }
 }
 
