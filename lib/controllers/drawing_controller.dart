@@ -312,6 +312,19 @@ class DrawingController extends ChangeNotifier {
       shapes
         ..clear()
         ..addAll(e.clearedShapes);
+    } else if (e is UndoLoadScene) {
+      redoStack.add(
+        RedoLoadScene(
+          beforeShapes: List<DrawShape>.of(e.beforeShapes),
+          afterShapes: List<DrawShape>.of(e.afterShapes),
+          beforePath: e.beforePath,
+          afterPath: e.afterPath,
+        ),
+      );
+      shapes
+        ..clear()
+        ..addAll(e.beforeShapes);
+      loadedBinaryPath = e.beforePath;
     }
     paintGeneration++;
     notifyListeners();
@@ -342,6 +355,19 @@ class DrawingController extends ChangeNotifier {
         UndoClearCanvas(clearedShapes: List<DrawShape>.of(e.clearedShapes)),
       );
       shapes.clear();
+    } else if (e is RedoLoadScene) {
+      undoStack.add(
+        UndoLoadScene(
+          beforeShapes: List<DrawShape>.of(e.beforeShapes),
+          afterShapes: List<DrawShape>.of(e.afterShapes),
+          beforePath: e.beforePath,
+          afterPath: e.afterPath,
+        ),
+      );
+      shapes
+        ..clear()
+        ..addAll(e.afterShapes);
+      loadedBinaryPath = e.afterPath;
     }
     paintGeneration++;
     notifyListeners();
@@ -378,11 +404,21 @@ class DrawingController extends ChangeNotifier {
   void loadScene(List<DrawShape> loadedShapes, String? path) {
     flyout = FlyoutKind.none;
     previewShape = null;
+    final List<DrawShape> previousShapes = List<DrawShape>.of(shapes);
+    final List<DrawShape> nextShapes = List<DrawShape>.of(loadedShapes);
+    final String? previousPath = loadedBinaryPath;
+    redoStack.clear();
+    undoStack.add(
+      UndoLoadScene(
+        beforeShapes: previousShapes,
+        afterShapes: nextShapes,
+        beforePath: previousPath,
+        afterPath: path,
+      ),
+    );
     shapes
       ..clear()
-      ..addAll(loadedShapes);
-    undoStack.clear();
-    redoStack.clear();
+      ..addAll(nextShapes);
     loadedBinaryPath = path;
     paintGeneration++;
     notifyListeners();

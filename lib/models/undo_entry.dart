@@ -25,3 +25,17 @@ class UndoClearCanvas extends UndoEntry {
 
   final List<DrawShape> clearedShapes;
 }
+
+class UndoLoadScene extends UndoEntry {
+  UndoLoadScene({
+    required this.beforeShapes,
+    required this.afterShapes,
+    required this.beforePath,
+    required this.afterPath,
+  });
+
+  final List<DrawShape> beforeShapes;
+  final List<DrawShape> afterShapes;
+  final String? beforePath;
+  final String? afterPath;
+}

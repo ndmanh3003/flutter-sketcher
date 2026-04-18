@@ -26,3 +26,17 @@ class RedoClearCanvas extends RedoEntry {
 
   final List<DrawShape> clearedShapes;
 }
+
+class RedoLoadScene extends RedoEntry {
+  RedoLoadScene({
+    required this.beforeShapes,
+    required this.afterShapes,
+    required this.beforePath,
+    required this.afterPath,
+  });
+
+  final List<DrawShape> beforeShapes;
+  final List<DrawShape> afterShapes;
+  final String? beforePath;
+  final String? afterPath;
+}
