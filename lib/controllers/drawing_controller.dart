@@ -8,12 +8,13 @@ import 'package:sketcher/models/draw_shape.dart';
 
 enum FlyoutKind { none, shape, color, stroke, strokeColor, saveFormat }
 
-enum ToolbarTool { draw, fill }
+enum ToolbarTool { draw, fill, move }
 
 class DrawingController extends ChangeNotifier {
   static const List<ToolbarTool> availableToolbarTools = <ToolbarTool>[
     ToolbarTool.draw,
     ToolbarTool.fill,
+    ToolbarTool.move,
   ];
 
   final List<DrawShape> shapes = <DrawShape>[];
@@ -35,14 +36,53 @@ class DrawingController extends ChangeNotifier {
   Color bucketColor = Colors.blue;
   double strokeWidth = 2;
   DrawShape? previewShape;
+  int paintGeneration = 0;
 
   ToolbarTool toolbarTool = ToolbarTool.draw;
   FlyoutKind flyout = FlyoutKind.none;
   double flyoutLeft = 0;
   double flyoutTop = 0;
-  Size canvasSize = Size.zero;
   String? loadedBinaryPath;
   SaveFormat selectedSaveFormat = SaveFormat.bin;
+
+  // ── Canvas / Viewport ───────────────────────────────────────────────────
+
+  /// Fixed canvas size, identical on every device.
+  static const Size canvasSize = Size(1280, 720);
+
+  /// Actual screen (viewport) size – updated by LayoutBuilder.
+  Size viewportSize = Size.zero;
+
+  /// Called once the viewport dimensions are known (or change).
+  /// This is invoked inside LayoutBuilder, so we must NOT call
+  /// notifyListeners synchronously (it would trigger setState during build).
+  void updateViewportSize(Size size) {
+    if (viewportSize == size) return;
+    final bool firstTime = viewportSize == Size.zero;
+    viewportSize = size;
+    if (firstTime) {
+      // Centre the canvas in the viewport on startup.
+      panOffset = _centredPanOffset();
+    } else {
+      _clampPanOffset();
+    }
+  }
+
+  /// Pan offset that places the canvas centre at the viewport centre.
+  Offset _centredPanOffset() {
+    return Offset(
+      (viewportSize.width - canvasSize.width * zoomScale) / 2,
+      (viewportSize.height - canvasSize.height * zoomScale) / 2,
+    );
+  }
+
+  // ── Pan / Zoom ──────────────────────────────────────────────────────────
+
+  Offset panOffset = Offset.zero;
+  double zoomScale = 1.0;
+  static const double _minZoom = 0.3;
+  static const double _maxZoom = 2.0;
+  static const double _zoomStep = 0.1;
 
   static Color opaque(Color c) => c.withValues(alpha: 1);
 
@@ -92,6 +132,63 @@ class DrawingController extends ChangeNotifier {
     setToolbarTool(modes[nextIndex]);
   }
 
+  // ── Pan / Zoom actions ─────────────────────────────────────────────────
+
+  /// Movable area = 1.5× canvas in each dimension, canvas centred.
+  /// That gives 0.25 × canvasSize × zoomScale margin on each side.
+  void _clampPanOffset() {
+    final double scaledW = canvasSize.width * zoomScale;
+    final double scaledH = canvasSize.height * zoomScale;
+    final double marginX = canvasSize.width * 0.25 * zoomScale;
+    final double marginY = canvasSize.height * 0.25 * zoomScale;
+
+    // Default offset that centres the canvas.
+    final double centreX = (viewportSize.width - scaledW) / 2;
+    final double centreY = (viewportSize.height - scaledH) / 2;
+
+    panOffset = Offset(
+      panOffset.dx.clamp(centreX - marginX, centreX + marginX),
+      panOffset.dy.clamp(centreY - marginY, centreY + marginY),
+    );
+  }
+
+  void panBy(Offset delta) {
+    panOffset += delta;
+    _clampPanOffset();
+    notifyListeners();
+  }
+
+  /// Zoom keeping the viewport-centre point fixed on the canvas.
+  void _zoomAroundCenter(double delta) {
+    final double oldZoom = zoomScale;
+    final double newZoom = (zoomScale + delta).clamp(_minZoom, _maxZoom);
+    if (newZoom == oldZoom) return;
+
+    // Viewport centre in screen space
+    final double cx = viewportSize.width / 2;
+    final double cy = viewportSize.height / 2;
+
+    // Canvas-space point currently at viewport centre
+    final double canvasX = (cx - panOffset.dx) / oldZoom;
+    final double canvasY = (cy - panOffset.dy) / oldZoom;
+
+    // Adjust pan so the same canvas point stays at viewport centre
+    panOffset = Offset(cx - canvasX * newZoom, cy - canvasY * newZoom);
+    zoomScale = newZoom;
+    _clampPanOffset();
+    notifyListeners();
+  }
+
+  void zoomIn() => _zoomAroundCenter(_zoomStep);
+
+  void zoomOut() => _zoomAroundCenter(-_zoomStep);
+
+  void resetView() {
+    zoomScale = 1.0;
+    panOffset = _centredPanOffset();
+    notifyListeners();
+  }
+
   // ── Drawing ────────────────────────────────────────────────────────────
 
   void drawPointIfNeeded(Offset point) {
@@ -109,6 +206,7 @@ class DrawingController extends ChangeNotifier {
     shapes.add(shape);
     redoStack.clear();
     undoStack.add(UndoAddShape(shape: shape));
+    paintGeneration++;
     notifyListeners();
   }
 
@@ -139,6 +237,7 @@ class DrawingController extends ChangeNotifier {
     redoStack.clear();
     undoStack.add(UndoAddShape(shape: shape));
     previewShape = null;
+    paintGeneration++;
     notifyListeners();
   }
 
@@ -160,6 +259,7 @@ class DrawingController extends ChangeNotifier {
         ),
       );
       shapes[i] = s.copyWith(fillColor: solid, filled: true);
+      paintGeneration++;
       notifyListeners();
       return;
     }
@@ -179,6 +279,7 @@ class DrawingController extends ChangeNotifier {
     redoStack.clear();
     undoStack.add(UndoClearCanvas(clearedShapes: List<DrawShape>.of(shapes)));
     shapes.clear();
+    paintGeneration++;
     notifyListeners();
   }
 
@@ -212,6 +313,7 @@ class DrawingController extends ChangeNotifier {
         ..clear()
         ..addAll(e.clearedShapes);
     }
+    paintGeneration++;
     notifyListeners();
   }
 
@@ -241,6 +343,7 @@ class DrawingController extends ChangeNotifier {
       );
       shapes.clear();
     }
+    paintGeneration++;
     notifyListeners();
   }
 
@@ -281,6 +384,7 @@ class DrawingController extends ChangeNotifier {
     undoStack.clear();
     redoStack.clear();
     loadedBinaryPath = path;
+    paintGeneration++;
     notifyListeners();
   }
 }

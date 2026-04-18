@@ -109,15 +109,15 @@ class FileOperations {
     DrawingController controller, {
     required void Function(String message) showSnack,
   }) async {
-    if (controller.canvasSize.width <= 0 ||
-        controller.canvasSize.height <= 0) {
+    if (DrawingController.canvasSize.width <= 0 ||
+        DrawingController.canvasSize.height <= 0) {
       showSnack('Save failed: invalid canvas size.');
       return;
     }
 
     try {
-      final int width = controller.canvasSize.width.round();
-      final int height = controller.canvasSize.height.round();
+      final int width = DrawingController.canvasSize.width.round();
+      final int height = DrawingController.canvasSize.height.round();
       final ui.PictureRecorder recorder = ui.PictureRecorder();
       final Canvas canvas = Canvas(
         recorder,
@@ -131,6 +131,7 @@ class FileOperations {
       DrawingPainter(
         shapes: controller.shapes,
         preview: null,
+        paintGeneration: controller.paintGeneration,
       ).paint(canvas, Size(width.toDouble(), height.toDouble()));
 
       final ui.Picture picture = recorder.endRecording();

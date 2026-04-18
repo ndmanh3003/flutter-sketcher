@@ -100,30 +100,43 @@ class _DrawingPageState extends State<DrawingPage> {
 
   // ── Canvas gesture routing ─────────────────────────────────────────────
 
+  /// Convert screen-space position to canvas-space,
+  /// accounting for pan offset and zoom scale.
+  Offset _toCanvasSpace(Offset screen) {
+    return (screen - _ctrl.panOffset) / _ctrl.zoomScale;
+  }
+
   void _onPanStart(DragStartDetails details) {
     if (_ctrl.dismissFlyoutIfOpen()) return;
+    if (_ctrl.toolbarTool == ToolbarTool.move) return;
     if (_ctrl.toolbarTool != ToolbarTool.draw) return;
-    _ctrl.startDraw(details.localPosition);
+    _ctrl.startDraw(_toCanvasSpace(details.localPosition));
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
+    if (_ctrl.toolbarTool == ToolbarTool.move) {
+      _ctrl.panBy(details.delta);
+      return;
+    }
     if (_ctrl.toolbarTool != ToolbarTool.draw) return;
-    _ctrl.updateDraw(details.localPosition);
+    _ctrl.updateDraw(_toCanvasSpace(details.localPosition));
   }
 
   void _onPanEnd(DragEndDetails _) {
+    if (_ctrl.toolbarTool == ToolbarTool.move) return;
     if (_ctrl.toolbarTool != ToolbarTool.draw) return;
     _ctrl.commitDraw();
   }
 
   void _onTapDown(TapDownDetails details) {
     if (_ctrl.dismissFlyoutIfOpen()) return;
+    final Offset canvasPoint = _toCanvasSpace(details.localPosition);
     if (_ctrl.toolbarTool == ToolbarTool.fill) {
-      _ctrl.fillAt(details.localPosition);
+      _ctrl.fillAt(canvasPoint);
       return;
     }
     if (_ctrl.toolbarTool == ToolbarTool.draw) {
-      _ctrl.drawPointIfNeeded(details.localPosition);
+      _ctrl.drawPointIfNeeded(canvasPoint);
     }
   }
 
@@ -152,13 +165,21 @@ class _DrawingPageState extends State<DrawingPage> {
     const double toolSize = 52;
     const double modeBarTop = 8;
     const double topDockTop = modeBarTop + toolSize + 18;
-    final double screenW = MediaQuery.sizeOf(context).width;
+
+    final MediaQueryData mq = MediaQuery.of(context);
+    final EdgeInsets padding = mq.padding;
+    final Size viewportSize = Size(
+      mq.size.width - padding.left - padding.right,
+      mq.size.height - padding.top - padding.bottom,
+    );
+    _ctrl.updateViewportSize(viewportSize);
+
     final bool isColorFlyout =
         _ctrl.flyout == FlyoutKind.color ||
         _ctrl.flyout == FlyoutKind.strokeColor;
     final double pillMaxWidth = isColorFlyout
-        ? math.min(340.0, screenW - toolSize - 48)
-        : math.min(280.0, screenW - toolSize - 48);
+        ? math.min(340.0, viewportSize.width - toolSize - 48)
+        : math.min(280.0, viewportSize.width - toolSize - 48);
 
     return Scaffold(
       body: SafeArea(
@@ -170,11 +191,14 @@ class _DrawingPageState extends State<DrawingPage> {
               child: CanvasArea(
                 shapes: _ctrl.shapes,
                 previewShape: _ctrl.previewShape,
+                canvasSize: DrawingController.canvasSize,
                 onPanStart: _onPanStart,
                 onPanUpdate: _onPanUpdate,
                 onPanEnd: _onPanEnd,
                 onTapDown: _onTapDown,
-                onCanvasSized: (size) => _ctrl.canvasSize = size,
+                panOffset: _ctrl.panOffset,
+                zoomScale: _ctrl.zoomScale,
+                paintGeneration: _ctrl.paintGeneration,
               ),
             ),
             if (_ctrl.flyout != FlyoutKind.none)
@@ -207,8 +231,10 @@ class _DrawingPageState extends State<DrawingPage> {
                 keyColorAnchor: _keyColorAnchor,
                 onToggleShapeFlyout: () =>
                     _handleToggleFlyout(FlyoutKind.shape, _keyShapeAnchor),
-                onToggleStrokeFlyout: () =>
-                    _handleToggleFlyout(FlyoutKind.stroke, _keyStrokeAnchor),
+                onToggleStrokeFlyout: () => _handleToggleFlyout(
+                  FlyoutKind.stroke,
+                  _keyStrokeAnchor,
+                ),
                 onToggleStrokeColorFlyout: () => _handleToggleFlyout(
                   FlyoutKind.strokeColor,
                   _keyStrokeColorAnchor,
@@ -225,8 +251,10 @@ class _DrawingPageState extends State<DrawingPage> {
                 controller: _ctrl,
                 keySaveAnchor: _keySaveAnchor,
                 onLoadScene: _handleLoadScene,
-                onToggleSaveFlyout: () =>
-                    _handleToggleFlyout(FlyoutKind.saveFormat, _keySaveAnchor),
+                onToggleSaveFlyout: () => _handleToggleFlyout(
+                  FlyoutKind.saveFormat,
+                  _keySaveAnchor,
+                ),
               ),
             ),
           ],

@@ -5,10 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:sketcher/models/draw_shape.dart';
 
 class DrawingPainter extends CustomPainter {
-  const DrawingPainter({required this.shapes, required this.preview});
+  const DrawingPainter({
+    required this.shapes,
+    required this.preview,
+    required this.paintGeneration,
+  });
 
   final List<DrawShape> shapes;
   final DrawShape? preview;
+  final int paintGeneration;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -76,6 +81,7 @@ class DrawingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant DrawingPainter oldDelegate) {
-    return oldDelegate.shapes != shapes || oldDelegate.preview != preview;
+    return oldDelegate.paintGeneration != paintGeneration ||
+        oldDelegate.preview != preview;
   }
 }

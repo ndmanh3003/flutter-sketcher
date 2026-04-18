@@ -20,6 +20,10 @@ const Map<ToolbarTool, _ToolbarModeVisual> _toolbarModeVisuals =
         icon: Icons.format_color_fill,
         tooltip: 'Fill mode',
       ),
+      ToolbarTool.move: _ToolbarModeVisual(
+        icon: Icons.open_with_outlined,
+        tooltip: 'Move mode',
+      ),
     };
 
 class ToolbarChrome extends StatelessWidget {
@@ -256,6 +260,50 @@ class ToolbarTopDock extends StatelessWidget {
     ];
   }
 
+  List<Widget> _buildMoveModeTools() {
+    final String zoomLabel = '${(controller.zoomScale * 100).round()}%';
+    return <Widget>[
+      RoundToolButton(
+        size: size,
+        selected: false,
+        icon: Icons.zoom_in,
+        tooltip: 'Zoom in',
+        onTap: controller.zoomIn,
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: SizedBox(
+          width: size,
+          height: 22,
+          child: Center(
+            child: Text(
+              zoomLabel,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.black54,
+              ),
+            ),
+          ),
+        ),
+      ),
+      RoundToolButton(
+        size: size,
+        selected: false,
+        icon: Icons.zoom_out,
+        tooltip: 'Zoom out',
+        onTap: controller.zoomOut,
+      ),
+      RoundToolButton(
+        size: size,
+        selected: false,
+        icon: Icons.fit_screen_outlined,
+        tooltip: 'Reset view',
+        onTap: controller.resetView,
+      ),
+    ];
+  }
+
   List<Widget> _buildFallbackModeTools() {
     return <Widget>[
       RoundToolButton(
@@ -275,6 +323,9 @@ class ToolbarTopDock extends StatelessWidget {
     }
     if (controller.toolbarTool == ToolbarTool.fill) {
       return _buildFillModeTools();
+    }
+    if (controller.toolbarTool == ToolbarTool.move) {
+      return _buildMoveModeTools();
     }
     return _buildFallbackModeTools();
   }
