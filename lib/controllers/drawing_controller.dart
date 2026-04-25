@@ -185,6 +185,32 @@ class DrawingController extends ChangeNotifier {
 
   void zoomOut() => _zoomAroundCenter(-_zoomStep);
 
+  /// Zoom keeping the given [focalPoint] (screen-space) fixed on the canvas.
+  void zoomAroundPoint(double delta, Offset focalPoint) {
+    final double oldZoom = zoomScale;
+    final double newZoom = (zoomScale + delta).clamp(_minZoom, _maxZoom);
+    if (newZoom == oldZoom) return;
+
+    final double canvasX = (focalPoint.dx - panOffset.dx) / oldZoom;
+    final double canvasY = (focalPoint.dy - panOffset.dy) / oldZoom;
+
+    panOffset = Offset(
+      focalPoint.dx - canvasX * newZoom,
+      focalPoint.dy - canvasY * newZoom,
+    );
+    zoomScale = newZoom;
+    _clampPanOffset();
+    notifyListeners();
+  }
+
+  /// Set absolute zoom and pan (used by pinch-to-zoom).
+  void setZoomAndPan(double newZoom, Offset newPan) {
+    zoomScale = newZoom.clamp(_minZoom, _maxZoom);
+    panOffset = newPan;
+    _clampPanOffset();
+    notifyListeners();
+  }
+
   void resetView() {
     zoomScale = 1.0;
     panOffset = _centredPanOffset();

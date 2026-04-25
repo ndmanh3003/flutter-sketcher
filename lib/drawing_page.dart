@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:sketcher/controllers/drawing_controller.dart';
 import 'package:sketcher/models/save_format.dart';
@@ -30,6 +32,11 @@ class _DrawingPageState extends State<DrawingPage> {
 
   final ScrollController _shapeScroll = ScrollController();
   final ScrollController _saveFormatScroll = ScrollController();
+
+  // ── Gesture state ─────────────────────────────────────────────────────
+  double _lastScale = 1.0;
+  bool _isPinching = false;
+  bool _isCtrlDragging = false;
 
   @override
   void initState() {
@@ -98,7 +105,7 @@ class _DrawingPageState extends State<DrawingPage> {
     _ctrl.updateFlyoutPosition(left, top);
   }
 
-  // ── Canvas gesture routing ─────────────────────────────────────────────
+  // ── Helpers ────────────────────────────────────────────────────────────
 
   /// Convert screen-space position to canvas-space,
   /// accounting for pan offset and zoom scale.
@@ -106,25 +113,96 @@ class _DrawingPageState extends State<DrawingPage> {
     return (screen - _ctrl.panOffset) / _ctrl.zoomScale;
   }
 
-  void _onPanStart(DragStartDetails details) {
+  bool get _isCtrlPressed {
+    final Set<LogicalKeyboardKey> keys =
+        HardwareKeyboard.instance.logicalKeysPressed;
+    return keys.contains(LogicalKeyboardKey.controlLeft) ||
+        keys.contains(LogicalKeyboardKey.controlRight);
+  }
+
+  // ── Canvas gesture routing (Scale* replaces Pan* for pinch support) ───
+
+  void _onScaleStart(ScaleStartDetails details) {
     if (_ctrl.dismissFlyoutIfOpen()) return;
+
+    _lastScale = 1.0;
+    _isPinching = false;
+    _isCtrlDragging = _isCtrlPressed;
+
+    // Ctrl+drag → will pan in update (all modes)
+    if (_isCtrlDragging) return;
+
+    // Multi-touch start → will pinch in update (all modes)
+    if (details.pointerCount >= 2) {
+      _isPinching = true;
+      return;
+    }
+
+    // Single pointer, no Ctrl → normal tool behavior
     if (_ctrl.toolbarTool == ToolbarTool.move) return;
     if (_ctrl.toolbarTool == ToolbarTool.erase) return;
     if (_ctrl.toolbarTool != ToolbarTool.draw) return;
-    _ctrl.startDraw(_toCanvasSpace(details.localPosition));
+    _ctrl.startDraw(_toCanvasSpace(details.localFocalPoint));
   }
 
-  void _onPanUpdate(DragUpdateDetails details) {
+  void _onScaleUpdate(ScaleUpdateDetails details) {
+    // Ctrl+drag → pan canvas (all modes)
+    if (_isCtrlDragging) {
+      _ctrl.panBy(details.focalPointDelta);
+      return;
+    }
+
+    // Transition to pinch when second finger arrives mid-gesture
+    if (details.pointerCount >= 2 && !_isPinching) {
+      _isPinching = true;
+      _lastScale = details.scale; // reset baseline to avoid jump
+      // If we were drawing, cancel the preview
+      if (_ctrl.previewShape != null) {
+        _ctrl.previewShape = null;
+      }
+      return;
+    }
+
+    // Multi-touch pinch → zoom + pan (all modes)
+    if (_isPinching) {
+      final double scaleFactor = details.scale / _lastScale;
+      _lastScale = details.scale;
+
+      final double oldZoom = _ctrl.zoomScale;
+      final double newZoom = (oldZoom * scaleFactor).clamp(0.3, 2.0);
+
+      // Keep the focal point fixed on the same canvas location
+      final double canvasX =
+          (details.localFocalPoint.dx - _ctrl.panOffset.dx) / oldZoom;
+      final double canvasY =
+          (details.localFocalPoint.dy - _ctrl.panOffset.dy) / oldZoom;
+      final Offset newPan = Offset(
+        details.localFocalPoint.dx - canvasX * newZoom,
+        details.localFocalPoint.dy - canvasY * newZoom,
+      );
+      _ctrl.setZoomAndPan(newZoom, newPan);
+      return;
+    }
+
+    // Single pointer, normal tool behavior
     if (_ctrl.toolbarTool == ToolbarTool.move) {
-      _ctrl.panBy(details.delta);
+      _ctrl.panBy(details.focalPointDelta);
       return;
     }
     if (_ctrl.toolbarTool == ToolbarTool.erase) return;
     if (_ctrl.toolbarTool != ToolbarTool.draw) return;
-    _ctrl.updateDraw(_toCanvasSpace(details.localPosition));
+    _ctrl.updateDraw(_toCanvasSpace(details.localFocalPoint));
   }
 
-  void _onPanEnd(DragEndDetails _) {
+  void _onScaleEnd(ScaleEndDetails _) {
+    if (_isCtrlDragging) {
+      _isCtrlDragging = false;
+      return;
+    }
+    if (_isPinching) {
+      _isPinching = false;
+      return;
+    }
     if (_ctrl.toolbarTool == ToolbarTool.move) return;
     if (_ctrl.toolbarTool == ToolbarTool.erase) return;
     if (_ctrl.toolbarTool != ToolbarTool.draw) return;
@@ -132,6 +210,7 @@ class _DrawingPageState extends State<DrawingPage> {
   }
 
   void _onTapDown(TapDownDetails details) {
+    if (_isCtrlPressed) return; // Ctrl+click should not trigger tool actions
     if (_ctrl.dismissFlyoutIfOpen()) return;
     final Offset canvasPoint = _toCanvasSpace(details.localPosition);
     if (_ctrl.toolbarTool == ToolbarTool.fill) {
@@ -144,6 +223,16 @@ class _DrawingPageState extends State<DrawingPage> {
     }
     if (_ctrl.toolbarTool == ToolbarTool.draw) {
       _ctrl.drawPointIfNeeded(canvasPoint);
+    }
+  }
+
+  // ── Desktop scroll zoom ───────────────────────────────────────────────
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is PointerScrollEvent && _isCtrlPressed) {
+      // Scroll up → zoom in, scroll down → zoom out
+      final double delta = -event.scrollDelta.dy / 1000;
+      _ctrl.zoomAroundPoint(delta, event.localPosition);
     }
   }
 
@@ -199,10 +288,11 @@ class _DrawingPageState extends State<DrawingPage> {
                 shapes: _ctrl.shapes,
                 previewShape: _ctrl.previewShape,
                 canvasSize: DrawingController.canvasSize,
-                onPanStart: _onPanStart,
-                onPanUpdate: _onPanUpdate,
-                onPanEnd: _onPanEnd,
+                onScaleStart: _onScaleStart,
+                onScaleUpdate: _onScaleUpdate,
+                onScaleEnd: _onScaleEnd,
                 onTapDown: _onTapDown,
+                onPointerSignal: _onPointerSignal,
                 panOffset: _ctrl.panOffset,
                 zoomScale: _ctrl.zoomScale,
                 paintGeneration: _ctrl.paintGeneration,
