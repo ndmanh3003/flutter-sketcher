@@ -22,9 +22,19 @@ class RedoFillRestore extends RedoEntry {
 }
 
 class RedoClearCanvas extends RedoEntry {
-  RedoClearCanvas({required this.clearedShapes});
+  RedoClearCanvas({
+    required this.clearedShapes,
+    required this.previousBackgroundColor,
+  });
 
   final List<DrawShape> clearedShapes;
+  final Color previousBackgroundColor;
+}
+
+class RedoBackgroundFill extends RedoEntry {
+  RedoBackgroundFill({required this.newColor});
+
+  final Color newColor;
 }
 
 class RedoLoadScene extends RedoEntry {
@@ -33,10 +43,14 @@ class RedoLoadScene extends RedoEntry {
     required this.afterShapes,
     required this.beforePath,
     required this.afterPath,
+    required this.beforeBackgroundColor,
+    required this.afterBackgroundColor,
   });
 
   final List<DrawShape> beforeShapes;
   final List<DrawShape> afterShapes;
   final String? beforePath;
   final String? afterPath;
+  final Color beforeBackgroundColor;
+  final Color afterBackgroundColor;
 }

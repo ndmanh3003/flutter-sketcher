@@ -34,6 +34,7 @@ class DrawingController extends ChangeNotifier {
   ShapeType selectedType = ShapeType.line;
   Color strokeColor = Colors.black;
   Color bucketColor = Colors.blue;
+  Color backgroundColor = Colors.white;
   double strokeWidth = 2;
   DrawShape? previewShape;
   int paintGeneration = 0;
@@ -263,12 +264,24 @@ class DrawingController extends ChangeNotifier {
       notifyListeners();
       return;
     }
+
+    // No shape was hit, so fill the background
+    fillBackground(solid);
+  }
+
+  void fillBackground(Color color) {
+    if (backgroundColor == color) return;
+    redoStack.clear();
+    undoStack.add(UndoBackgroundFill(previousColor: backgroundColor));
+    backgroundColor = color;
+    paintGeneration++;
+    notifyListeners();
   }
 
   // ── Undo / Redo / Clear ────────────────────────────────────────────────
 
   void clearCanvas() {
-    if (shapes.isEmpty) {
+    if (shapes.isEmpty && backgroundColor == Colors.white) {
       flyout = FlyoutKind.none;
       previewShape = null;
       notifyListeners();
@@ -277,8 +290,14 @@ class DrawingController extends ChangeNotifier {
     flyout = FlyoutKind.none;
     previewShape = null;
     redoStack.clear();
-    undoStack.add(UndoClearCanvas(clearedShapes: List<DrawShape>.of(shapes)));
+    undoStack.add(
+      UndoClearCanvas(
+        clearedShapes: List<DrawShape>.of(shapes),
+        previousBackgroundColor: backgroundColor,
+      ),
+    );
     shapes.clear();
+    backgroundColor = Colors.white;
     paintGeneration++;
     notifyListeners();
   }
@@ -307,11 +326,18 @@ class DrawingController extends ChangeNotifier {
       }
     } else if (e is UndoClearCanvas) {
       redoStack.add(
-        RedoClearCanvas(clearedShapes: List<DrawShape>.of(e.clearedShapes)),
+        RedoClearCanvas(
+          clearedShapes: List<DrawShape>.of(e.clearedShapes),
+          previousBackgroundColor: backgroundColor,
+        ),
       );
       shapes
         ..clear()
         ..addAll(e.clearedShapes);
+      backgroundColor = e.previousBackgroundColor;
+    } else if (e is UndoBackgroundFill) {
+      redoStack.add(RedoBackgroundFill(newColor: backgroundColor));
+      backgroundColor = e.previousColor;
     } else if (e is UndoLoadScene) {
       redoStack.add(
         RedoLoadScene(
@@ -319,11 +345,14 @@ class DrawingController extends ChangeNotifier {
           afterShapes: List<DrawShape>.of(e.afterShapes),
           beforePath: e.beforePath,
           afterPath: e.afterPath,
+          beforeBackgroundColor: e.beforeBackgroundColor,
+          afterBackgroundColor: e.afterBackgroundColor,
         ),
       );
       shapes
         ..clear()
         ..addAll(e.beforeShapes);
+      backgroundColor = e.beforeBackgroundColor;
       loadedBinaryPath = e.beforePath;
     }
     paintGeneration++;
@@ -352,9 +381,16 @@ class DrawingController extends ChangeNotifier {
       }
     } else if (e is RedoClearCanvas) {
       undoStack.add(
-        UndoClearCanvas(clearedShapes: List<DrawShape>.of(e.clearedShapes)),
+        UndoClearCanvas(
+          clearedShapes: List<DrawShape>.of(e.clearedShapes),
+          previousBackgroundColor: backgroundColor,
+        ),
       );
       shapes.clear();
+      backgroundColor = Colors.white;
+    } else if (e is RedoBackgroundFill) {
+      undoStack.add(UndoBackgroundFill(previousColor: backgroundColor));
+      backgroundColor = e.newColor;
     } else if (e is RedoLoadScene) {
       undoStack.add(
         UndoLoadScene(
@@ -362,11 +398,14 @@ class DrawingController extends ChangeNotifier {
           afterShapes: List<DrawShape>.of(e.afterShapes),
           beforePath: e.beforePath,
           afterPath: e.afterPath,
+          beforeBackgroundColor: e.beforeBackgroundColor,
+          afterBackgroundColor: e.afterBackgroundColor,
         ),
       );
       shapes
         ..clear()
         ..addAll(e.afterShapes);
+      backgroundColor = e.afterBackgroundColor;
       loadedBinaryPath = e.afterPath;
     }
     paintGeneration++;
@@ -401,12 +440,13 @@ class DrawingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void loadScene(List<DrawShape> loadedShapes, String? path) {
+  void loadScene(List<DrawShape> loadedShapes, Color loadedBackgroundColor, String? path) {
     flyout = FlyoutKind.none;
     previewShape = null;
     final List<DrawShape> previousShapes = List<DrawShape>.of(shapes);
     final List<DrawShape> nextShapes = List<DrawShape>.of(loadedShapes);
     final String? previousPath = loadedBinaryPath;
+    final Color previousBackgroundColor = backgroundColor;
     redoStack.clear();
     undoStack.add(
       UndoLoadScene(
@@ -414,11 +454,14 @@ class DrawingController extends ChangeNotifier {
         afterShapes: nextShapes,
         beforePath: previousPath,
         afterPath: path,
+        beforeBackgroundColor: previousBackgroundColor,
+        afterBackgroundColor: loadedBackgroundColor,
       ),
     );
     shapes
       ..clear()
       ..addAll(nextShapes);
+    backgroundColor = loadedBackgroundColor;
     loadedBinaryPath = path;
     paintGeneration++;
     notifyListeners();

@@ -4,20 +4,23 @@ import 'package:flutter/material.dart';
 
 import 'package:sketcher/models/draw_shape.dart';
 
-/// Binary format: magic `DRW1` + little-endian shape records.
+/// Binary format: magic `DRW2` + background color (4 bytes) + little-endian shape records.
+/// Backward compatibility with `DRW1` is maintained.
 class SceneCodec {
-  static const List<int> header = <int>[0x44, 0x52, 0x57, 0x31]; // DRW1
+  static const List<int> headerDRW1 = <int>[0x44, 0x52, 0x57, 0x31]; // DRW1
+  static const List<int> headerDRW2 = <int>[0x44, 0x52, 0x57, 0x32]; // DRW2
   static const int shapeByteSize = 1 + 4 + 4 + 1 + 4 + 4 + 4 + 4 + 4;
 
-  Uint8List encode(List<DrawShape> shapes) {
-    final int total = 8 + shapes.length * shapeByteSize;
+  Uint8List encode(List<DrawShape> shapes, Color backgroundColor) {
+    final int total = 8 + 4 + shapes.length * shapeByteSize;
     final ByteData data = ByteData(total);
     for (int i = 0; i < 4; i++) {
-      data.setUint8(i, header[i]);
+      data.setUint8(i, headerDRW2[i]);
     }
     data.setUint32(4, shapes.length, Endian.little);
+    data.setUint32(8, backgroundColor.toARGB32(), Endian.little);
 
-    int o = 8;
+    int o = 12;
     for (final DrawShape s in shapes) {
       data.setUint8(o, s.type.index);
       o += 1;
@@ -41,7 +44,7 @@ class SceneCodec {
     return data.buffer.asUint8List();
   }
 
-  List<DrawShape> decode(Uint8List bytes) {
+  (List<DrawShape> shapes, Color backgroundColor) decode(Uint8List bytes) {
     final ByteData data = bytes.buffer.asByteData(
       bytes.offsetInBytes,
       bytes.lengthInBytes,
@@ -49,19 +52,44 @@ class SceneCodec {
     if (bytes.lengthInBytes < 8) {
       throw const FormatException('File too short.');
     }
+    
+    bool isDRW1 = true;
     for (int i = 0; i < 4; i++) {
-      if (data.getUint8(i) != header[i]) {
-        throw const FormatException('Invalid file header.');
+      if (data.getUint8(i) != headerDRW1[i]) {
+        isDRW1 = false;
+        break;
       }
     }
+    
+    bool isDRW2 = false;
+    if (!isDRW1) {
+      isDRW2 = true;
+      for (int i = 0; i < 4; i++) {
+        if (data.getUint8(i) != headerDRW2[i]) {
+          isDRW2 = false;
+          break;
+        }
+      }
+    }
+
+    if (!isDRW1 && !isDRW2) {
+      throw const FormatException('Invalid file header.');
+    }
+
     final int count = data.getUint32(4, Endian.little);
-    final int expected = 8 + count * shapeByteSize;
+    final int expected = (isDRW1 ? 8 : 12) + count * shapeByteSize;
     if (expected != bytes.lengthInBytes) {
       throw const FormatException('Invalid file size.');
     }
 
-    final List<DrawShape> result = <DrawShape>[];
+    Color backgroundColor = Colors.white;
     int o = 8;
+    if (isDRW2) {
+      backgroundColor = Color(data.getUint32(8, Endian.little));
+      o = 12;
+    }
+
+    final List<DrawShape> result = <DrawShape>[];
     for (int i = 0; i < count; i++) {
       final ShapeType type = ShapeType.values[data.getUint8(o)];
       o += 1;
@@ -94,6 +122,6 @@ class SceneCodec {
         ),
       );
     }
-    return result;
+    return (result, backgroundColor);
   }
 }

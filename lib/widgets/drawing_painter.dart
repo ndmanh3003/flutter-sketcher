@@ -9,14 +9,19 @@ class DrawingPainter extends CustomPainter {
     required this.shapes,
     required this.preview,
     required this.paintGeneration,
+    this.backgroundColor,
   });
 
   final List<DrawShape> shapes;
   final DrawShape? preview;
   final int paintGeneration;
+  final Color? backgroundColor;
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (backgroundColor != null) {
+      canvas.drawRect(Offset.zero & size, Paint()..color = backgroundColor!);
+    }
     paintShapes(canvas, shapes);
     if (preview != null) {
       _paintShape(canvas, preview!);

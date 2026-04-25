@@ -34,7 +34,7 @@ class FileOperations {
     required void Function(String message) showSnack,
   }) async {
     try {
-      final Uint8List bytes = SceneCodec().encode(controller.shapes);
+      final Uint8List bytes = SceneCodec().encode(controller.shapes, controller.backgroundColor);
 
       if (!kIsWeb && controller.loadedBinaryPath != null) {
         final XFile file = XFile.fromData(
@@ -90,10 +90,12 @@ class FileOperations {
       final PlatformFile pickedFile = result.files.single;
       final Uint8List bytes =
           pickedFile.bytes ?? await pickedFile.xFile.readAsBytes();
-      final List<DrawShape> loadedShapes = SceneCodec().decode(bytes);
+      final (List<DrawShape> loadedShapes, Color loadedBackgroundColor) =
+          SceneCodec().decode(bytes);
 
       controller.loadScene(
         loadedShapes,
+        loadedBackgroundColor,
         kIsWeb ? null : pickedFile.path,
       );
       showSnack(
@@ -126,12 +128,13 @@ class FileOperations {
 
       canvas.drawRect(
         Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
-        Paint()..color = Colors.white,
+        Paint()..color = controller.backgroundColor,
       );
       DrawingPainter(
         shapes: controller.shapes,
         preview: null,
         paintGeneration: controller.paintGeneration,
+        backgroundColor: controller.backgroundColor,
       ).paint(canvas, Size(width.toDouble(), height.toDouble()));
 
       final ui.Picture picture = recorder.endRecording();

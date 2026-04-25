@@ -199,6 +199,7 @@ class _DrawingPageState extends State<DrawingPage> {
                 panOffset: _ctrl.panOffset,
                 zoomScale: _ctrl.zoomScale,
                 paintGeneration: _ctrl.paintGeneration,
+                backgroundColor: _ctrl.backgroundColor,
               ),
             ),
             if (_ctrl.flyout != FlyoutKind.none)

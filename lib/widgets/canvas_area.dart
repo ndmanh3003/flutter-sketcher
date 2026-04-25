@@ -14,6 +14,7 @@ class CanvasArea extends StatelessWidget {
     required this.onPanEnd,
     required this.onTapDown,
     required this.paintGeneration,
+    required this.backgroundColor,
     this.panOffset = Offset.zero,
     this.zoomScale = 1.0,
   });
@@ -26,6 +27,7 @@ class CanvasArea extends StatelessWidget {
   final GestureDragEndCallback onPanEnd;
   final GestureTapDownCallback onTapDown;
   final int paintGeneration;
+  final Color backgroundColor;
   final Offset panOffset;
   final double zoomScale;
 
@@ -58,7 +60,7 @@ class CanvasArea extends StatelessWidget {
                     width: canvasSize.width,
                     height: canvasSize.height,
                     child: ColoredBox(
-                      color: Colors.white,
+                      color: backgroundColor,
                       child: CustomPaint(
                         size: canvasSize,
                         painter: DrawingPainter(
