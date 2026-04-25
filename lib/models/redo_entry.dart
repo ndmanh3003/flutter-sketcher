@@ -9,6 +9,13 @@ class RedoAddShape extends RedoEntry {
   final DrawShape shape;
 }
 
+class RedoDeleteShape extends RedoEntry {
+  RedoDeleteShape({required this.shapeIndex, required this.shape});
+
+  final int shapeIndex;
+  final DrawShape shape;
+}
+
 class RedoFillRestore extends RedoEntry {
   RedoFillRestore({
     required this.shapeIndex,

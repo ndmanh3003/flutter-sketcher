@@ -8,12 +8,13 @@ import 'package:sketcher/models/draw_shape.dart';
 
 enum FlyoutKind { none, shape, color, stroke, strokeColor, saveFormat }
 
-enum ToolbarTool { draw, fill, move }
+enum ToolbarTool { draw, fill, erase, move }
 
 class DrawingController extends ChangeNotifier {
   static const List<ToolbarTool> availableToolbarTools = <ToolbarTool>[
     ToolbarTool.draw,
     ToolbarTool.fill,
+    ToolbarTool.erase,
     ToolbarTool.move,
   ];
 
@@ -242,6 +243,22 @@ class DrawingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Erase ───────────────────────────────────────────────────────────────
+
+  void deleteShapeAt(Offset p) {
+    for (int i = shapes.length - 1; i >= 0; i--) {
+      final DrawShape s = shapes[i];
+      if (ShapeHitTest.contains(s, p)) {
+        redoStack.clear();
+        undoStack.add(UndoDeleteShape(shapeIndex: i, shape: s));
+        shapes.removeAt(i);
+        paintGeneration++;
+        notifyListeners();
+        return;
+      }
+    }
+  }
+
   // ── Fill ────────────────────────────────────────────────────────────────
 
   void fillAt(Offset p) {
@@ -338,6 +355,9 @@ class DrawingController extends ChangeNotifier {
     } else if (e is UndoBackgroundFill) {
       redoStack.add(RedoBackgroundFill(newColor: backgroundColor));
       backgroundColor = e.previousColor;
+    } else if (e is UndoDeleteShape) {
+      redoStack.add(RedoDeleteShape(shapeIndex: e.shapeIndex, shape: e.shape));
+      shapes.insert(e.shapeIndex, e.shape);
     } else if (e is UndoLoadScene) {
       redoStack.add(
         RedoLoadScene(
@@ -391,6 +411,9 @@ class DrawingController extends ChangeNotifier {
     } else if (e is RedoBackgroundFill) {
       undoStack.add(UndoBackgroundFill(previousColor: backgroundColor));
       backgroundColor = e.newColor;
+    } else if (e is RedoDeleteShape) {
+      undoStack.add(UndoDeleteShape(shapeIndex: e.shapeIndex, shape: e.shape));
+      shapes.removeAt(e.shapeIndex);
     } else if (e is RedoLoadScene) {
       undoStack.add(
         UndoLoadScene(

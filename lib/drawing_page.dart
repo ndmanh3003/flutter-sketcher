@@ -109,6 +109,7 @@ class _DrawingPageState extends State<DrawingPage> {
   void _onPanStart(DragStartDetails details) {
     if (_ctrl.dismissFlyoutIfOpen()) return;
     if (_ctrl.toolbarTool == ToolbarTool.move) return;
+    if (_ctrl.toolbarTool == ToolbarTool.erase) return;
     if (_ctrl.toolbarTool != ToolbarTool.draw) return;
     _ctrl.startDraw(_toCanvasSpace(details.localPosition));
   }
@@ -118,12 +119,14 @@ class _DrawingPageState extends State<DrawingPage> {
       _ctrl.panBy(details.delta);
       return;
     }
+    if (_ctrl.toolbarTool == ToolbarTool.erase) return;
     if (_ctrl.toolbarTool != ToolbarTool.draw) return;
     _ctrl.updateDraw(_toCanvasSpace(details.localPosition));
   }
 
   void _onPanEnd(DragEndDetails _) {
     if (_ctrl.toolbarTool == ToolbarTool.move) return;
+    if (_ctrl.toolbarTool == ToolbarTool.erase) return;
     if (_ctrl.toolbarTool != ToolbarTool.draw) return;
     _ctrl.commitDraw();
   }
@@ -133,6 +136,10 @@ class _DrawingPageState extends State<DrawingPage> {
     final Offset canvasPoint = _toCanvasSpace(details.localPosition);
     if (_ctrl.toolbarTool == ToolbarTool.fill) {
       _ctrl.fillAt(canvasPoint);
+      return;
+    }
+    if (_ctrl.toolbarTool == ToolbarTool.erase) {
+      _ctrl.deleteShapeAt(canvasPoint);
       return;
     }
     if (_ctrl.toolbarTool == ToolbarTool.draw) {

@@ -1,24 +1,35 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:sketcher/controllers/drawing_controller.dart';
 import 'package:sketcher/widgets/shape_icon_helpers.dart';
 
 class _ToolbarModeVisual {
-  const _ToolbarModeVisual({required this.icon, required this.tooltip});
+  const _ToolbarModeVisual({
+    required this.icon,
+    required this.tooltip,
+    this.assetIcon,
+  });
 
   final IconData icon;
   final String tooltip;
+  final String? assetIcon;
 }
 
 const Map<ToolbarTool, _ToolbarModeVisual> _toolbarModeVisuals =
     <ToolbarTool, _ToolbarModeVisual>{
       ToolbarTool.draw: _ToolbarModeVisual(
-        icon: Icons.brush,
+        icon: Icons.brush_outlined,
         tooltip: 'Draw mode',
       ),
       ToolbarTool.fill: _ToolbarModeVisual(
-        icon: Icons.format_color_fill,
+        icon: Icons.format_color_fill_rounded,
         tooltip: 'Fill mode',
+      ),
+      ToolbarTool.erase: _ToolbarModeVisual(
+        icon: Icons.delete_sweep_outlined,
+        tooltip: 'Erase mode',
+        assetIcon: 'assets/icons/eraser_outline.svg',
       ),
       ToolbarTool.move: _ToolbarModeVisual(
         icon: Icons.open_with_outlined,
@@ -154,6 +165,20 @@ class ToolbarModeBar extends StatelessWidget {
     return _toolbarModeVisuals[mode]?.tooltip ?? 'Mode';
   }
 
+  Widget? _iconChildForMode(ToolbarTool mode, bool selected) {
+    final String? assetIcon = _toolbarModeVisuals[mode]?.assetIcon;
+    if (assetIcon != null) {
+      final Color iconColor = selected ? Colors.white : Colors.black87;
+      return SvgPicture.asset(
+        assetIcon,
+        width: 24,
+        height: 24,
+        colorFilter: ColorFilter.mode(iconColor, BlendMode.srcIn),
+      );
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ToolbarRowChrome(
@@ -166,6 +191,10 @@ class ToolbarModeBar extends StatelessWidget {
               size: size,
               selected: controller.toolbarTool == mode,
               icon: _iconForMode(mode),
+              iconChild: _iconChildForMode(
+                mode,
+                controller.toolbarTool == mode,
+              ),
               tooltip: _tooltipForMode(mode),
               onTap: () => controller.setToolbarTool(mode),
             ),
@@ -304,6 +333,18 @@ class ToolbarTopDock extends StatelessWidget {
     ];
   }
 
+  List<Widget> _buildEraseModeTools() {
+    return <Widget>[
+      RoundToolButton(
+        size: size,
+        selected: false,
+        icon: Icons.delete_outline,
+        tooltip: 'Clear all',
+        onTap: controller.clearCanvas,
+      ),
+    ];
+  }
+
   List<Widget> _buildFallbackModeTools() {
     return <Widget>[
       RoundToolButton(
@@ -326,6 +367,9 @@ class ToolbarTopDock extends StatelessWidget {
     }
     if (controller.toolbarTool == ToolbarTool.move) {
       return _buildMoveModeTools();
+    }
+    if (controller.toolbarTool == ToolbarTool.erase) {
+      return _buildEraseModeTools();
     }
     return _buildFallbackModeTools();
   }
@@ -374,13 +418,6 @@ class ToolbarBottomDock extends StatelessWidget {
           tooltip: 'Redo',
           enabled: controller.redoStack.isNotEmpty,
           onTap: controller.redo,
-        ),
-        RoundToolButton(
-          size: size,
-          selected: false,
-          icon: Icons.delete_outline,
-          tooltip: 'Clear all',
-          onTap: controller.clearCanvas,
         ),
         RoundToolButton(
           size: size,

@@ -9,6 +9,13 @@ class UndoAddShape extends UndoEntry {
   final DrawShape shape;
 }
 
+class UndoDeleteShape extends UndoEntry {
+  UndoDeleteShape({required this.shapeIndex, required this.shape});
+
+  final int shapeIndex;
+  final DrawShape shape;
+}
+
 class UndoFillRestore extends UndoEntry {
   UndoFillRestore({
     required this.shapeIndex,
