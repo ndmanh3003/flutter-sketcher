@@ -15,13 +15,14 @@ Sketcher là một ứng dụng vẽ 2D nhẹ, tập trung vào các thao tác c
 ## Chức năng chính
 
 - Vẽ các hình cơ bản: point, line, ellipse, circle, square, rectangle.
-- 3 chế độ thao tác: Draw, Fill và Move.
-- Tô màu bucket fill cho các hình (ellipse, circle, square, rectangle).
-- Điều chỉnh stroke width, stroke color và fill color.
-- Pan/Zoom canvas trong chế độ Move (zoom in, zoom out, reset view).
-- Undo/Redo cho nhiều loại thao tác: thêm hình, fill, clear canvas, load scene.
-- Lưu và nạp scene nhị phân `.bin` (định dạng riêng `DRW1`).
-- Export ảnh ra PNG/JPEG từ canvas hiện tại.
+- 4 chế độ thao tác: Draw, Fill, Erase và Move.
+- Tô màu bucket fill cho hình (ellipse, circle, square, rectangle) hoặc background.
+- Điều chỉnh độ dày nét, màu nét và màu tô.
+- Xóa từng hình đã vẽ, xóa toàn bộ canvas.
+- Pan/Zoom canvas trong chế độ Move: Ctrl + scroll để zoom, Ctrl + drag để pan, pinch-to-zoom trên mobile.
+- Undo/Redo cho nhiều loại thao tác: vẽ hình, fill, erase, clear canvas, load scene.
+- Lưu và nạp scene nhị phân `.bin`.
+- Xuất ảnh ra PNG/JPEG từ canvas hiện tại.
 
 **[Video demo](https://www.youtube.com/)**
 
