@@ -24,7 +24,7 @@ Sketcher là một ứng dụng vẽ 2D nhẹ, tập trung vào các thao tác c
 - Lưu và nạp scene nhị phân `.bin`.
 - Xuất ảnh ra PNG/JPEG từ canvas hiện tại.
 
-**[Video demo](https://www.youtube.com/)**
+**[Video demo](https://youtu.be/AYP862cEh6c)** (nên xem ở tốc độ 1.5x)
 
 ## Yêu cầu
 
